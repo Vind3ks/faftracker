@@ -271,7 +271,6 @@ function renderApm(analysis) {
 
 function renderParserStatus(analysis) {
   const parser = analysis.parser || {};
-  const diagnostics = parser.diagnostics || {};
   const status = parser.available ? "Active" : "Unavailable";
   const quality = parser.quality || "unknown";
   const commandCounts = parser.commandCounts
@@ -281,8 +280,6 @@ function renderParserStatus(analysis) {
     <strong>Parser ${escapeHtml(status)} (${escapeHtml(quality)})</strong>
     <div>${escapeHtml(parser.note || parser.error || "No parser detail returned.")}</div>
     ${parser.error ? `<div><strong>Error:</strong> ${escapeHtml(parser.error)}</div>` : ""}
-    ${diagnostics.python ? `<div><strong>Python:</strong> <code>${escapeHtml(diagnostics.python)}</code></div>` : ""}
-    ${diagnostics.scriptPath ? `<div><strong>Adapter:</strong> <code>${escapeHtml(diagnostics.scriptPath)}</code> (${diagnostics.scriptExists ? "found" : "missing"})</div>` : ""}
     ${commandCounts ? `<div><strong>Commands:</strong> ${escapeHtml(commandCounts)}</div>` : ""}
   `;
   elements.parserStatus.className = `panel parser-status ${parser.available ? "good" : "bad"}`;

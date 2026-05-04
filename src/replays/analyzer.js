@@ -1,5 +1,6 @@
 const { URL } = require("url");
 const path = require("path");
+const fs = require("fs");
 const { spawnSync } = require("child_process");
 
 const MAX_REPLAY_BYTES = Number(process.env.MAX_REPLAY_BYTES || 32 * 1024 * 1024);
@@ -153,7 +154,19 @@ function createTimeline(durationSeconds, players) {
 }
 
 function runCommandParser(buffer) {
-  const python = process.env.REPLAY_PYTHON || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+  const bundledPython = path.join(
+    process.env.USERPROFILE || "",
+    ".cache",
+    "codex-runtimes",
+    "codex-primary-runtime",
+    "dependencies",
+    "python",
+    "python.exe"
+  );
+  const python = process.env.REPLAY_PYTHON
+    || process.env.PYTHON
+    || (process.platform === "win32" && fs.existsSync(bundledPython) ? bundledPython : null)
+    || (process.platform === "win32" ? "python" : "python3");
   const scriptPath = path.join(__dirname, "..", "..", "scripts", "replay_command_analyzer.py");
   const result = spawnSync(python, [scriptPath], {
     input: JSON.stringify({ replayBase64: buffer.toString("base64") }),

@@ -154,12 +154,18 @@ function eventFallbackIcon(event) {
 }
 
 function milestoneRow(event) {
+  const title = event?.eventType || event?.label || "Milestone";
+  const unitName = event?.unitName || event?.label || "";
+  const description = event?.unitDescription || event?.detail || milestoneDetail(event, "Important replay event");
+  const subtitle = unitName && unitName !== title
+    ? `${unitName} · ${description}`
+    : description;
   return `
     <div class="tech-row">
       ${blueprintIcon(event, eventFallbackIcon(event))}
       <div class="tech-copy">
-        <div class="tech-title">${escapeHtml(event?.label || "Milestone")}</div>
-        <span class="tech-detail">${escapeHtml(event?.detail || milestoneDetail(event, "Important replay event"))}</span>
+        <div class="tech-title">${escapeHtml(title)}</div>
+        <span class="tech-detail">${escapeHtml(subtitle)}</span>
       </div>
       <span class="time-pill">${escapeHtml(formatTechTime(event))}</span>
     </div>
@@ -197,7 +203,7 @@ function renderPlayerMilestones(stats) {
   const details = stats.details || [];
   const defaultRows = milestones.length
     ? milestones.map(milestoneRow).join("")
-    : `<div class="empty-milestone">No major completed tech, ACU upgrade, nuke, or experimental event detected.</div>`;
+    : `<div class="empty-milestone">No completed HQ tech, engineer, power, nuke, SMD, or experimental event detected.</div>`;
   const detailRows = details.length
     ? details.map(detailRow).join("")
     : `<div class="empty-milestone">No detailed build-order data was found.</div>`;

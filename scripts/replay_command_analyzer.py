@@ -19,6 +19,7 @@ ACTION_COMMANDS = [
     commands.CommandSourceTerminated,
     commands.DestroyEntity,
     commands.EndGame,
+    commands.CreateUnit,
     commands.IssueCommand,
     commands.IssueFactoryCommand,
     commands.LuaSimCallback,
@@ -82,6 +83,7 @@ def blueprint_metadata(blueprint):
 
     metadata = {
         "unitName": value.upper(),
+        "description": "",
         "strategicIcon": None,
         "categories": [],
     }
@@ -98,6 +100,10 @@ def blueprint_metadata(blueprint):
         if name_match:
             metadata["unitName"] = clean_loc(name_match.group(1))
 
+        description_match = re.search(r"Description\s*=\s*['\"]([^'\"]+)['\"]", bp_text)
+        if description_match:
+            metadata["description"] = clean_loc(description_match.group(1))
+
         categories_match = re.search(r"Categories\s*=\s*\{(?P<body>.*?)\}", bp_text, flags=re.S)
         if categories_match:
             metadata["categories"] = [
@@ -107,6 +113,52 @@ def blueprint_metadata(blueprint):
     except Exception:
         pass
     return metadata
+
+
+def tech_number_from_categories(categories):
+    category_set = set(categories or [])
+    for value in ("4", "3", "2", "1"):
+        if f"TECH{value}" in category_set:
+            return value
+    return None
+
+
+def category_layer(categories):
+    category_set = set(categories or [])
+    if "AIR" in category_set:
+        return "Air"
+    if "NAVAL" in category_set:
+        return "Navy"
+    if "LAND" in category_set:
+        return "Land"
+    if "STRUCTURE" in category_set:
+        return "Structure"
+    return "Unit"
+
+
+def unit_description(metadata):
+    categories = set(metadata.get("categories") or [])
+    tech = tech_number_from_categories(categories)
+    layer = category_layer(categories)
+    description = metadata.get("description") or ""
+
+    if "ANTIMISSILE" in categories and "SILO" in categories:
+        return "Strategic Missile Defence"
+    if ("NUKE" in categories or "NUKE SILO" in " ".join(categories)) and "SILO" in categories:
+        return "Strategic Missile Launcher"
+    if "EXPERIMENTAL" in categories:
+        return description or f"Experimental {layer.lower()}"
+    if "FACTORY" in categories and tech in ("2", "3"):
+        return f"T{tech} {layer} HQ"
+    if "ENGINEER" in categories and tech in ("2", "3"):
+        return f"T{tech} {layer} engineer"
+    if "ENERGYPRODUCTION" in categories and tech in ("2", "3"):
+        return f"T{tech} power generator"
+    if description:
+        return description
+    if tech:
+        return f"T{tech} {layer.lower()}"
+    return layer
 
 
 def player_sources(header):
@@ -252,7 +304,47 @@ def tech_source_key(source):
     return f"{tech_match.group(1) if tech_match else 'x'}:{branch}"
 
 
-def callback_milestone(command, tick):
+def rich_unit_event(blueprint, tick, event_type, key, source="completed-unit"):
+    metadata = blueprint_metadata(blueprint)
+    unit_name = metadata.get("unitName") or str(blueprint or "").upper()
+    description = unit_description(metadata)
+    if unit_name.lower() == str(blueprint or "").lower() or unit_name.upper() == str(blueprint or "").upper():
+        unit_name = description
+    return {
+        "key": key,
+        "type": "major-completed",
+        "eventType": event_type,
+        "tick": tick,
+        "second": tick / 10,
+        "blueprint": blueprint,
+        "label": unit_name,
+        "unitName": unit_name,
+        "unitDescription": description,
+        "detail": description,
+        "kind": blueprint_kind(blueprint),
+        "categories": metadata.get("categories", []),
+        "iconDataUrl": strategic_icon_data_url(blueprint),
+        "source": source,
+    }
+
+
+def fallback_event(tick, event_type, key, detail, icon_text, source="callback"):
+    return {
+        "key": key,
+        "type": "major-completed",
+        "eventType": event_type,
+        "tick": tick,
+        "second": tick / 10,
+        "label": event_type,
+        "unitName": event_type,
+        "unitDescription": detail,
+        "detail": detail,
+        "iconText": icon_text,
+        "source": source,
+    }
+
+
+def callback_milestone(command, tick, pending_upgrades, active_tech_upgrades):
     args = decode_bytes(command.get("args") or {})
     msg = args.get("Msg") if isinstance(args, dict) else {}
     data = msg.get("data") if isinstance(msg, dict) else {}
@@ -262,68 +354,85 @@ def callback_milestone(command, tick):
     source = str(data.get("source") or "").lower() if isinstance(data, dict) else ""
     text = str(msg.get("text") or "") if isinstance(msg, dict) else ""
 
+    if category == "tech" and trigger == "started":
+        key = tech_source_key(source)
+        blueprint = None
+        for entity_id in command.get("selection") or []:
+            blueprint = pending_upgrades.get(int(entity_id))
+            if blueprint:
+                break
+        if blueprint and sender:
+            active_tech_upgrades[(sender, key)] = blueprint
+        return None
+
     if category == "tech" and trigger == "completed":
-        return {
-            "playerName": sender,
-            "key": tech_source_key(source),
-            "type": "tech",
-            "tick": tick,
-            "second": tick / 10,
-            "label": tech_source_label(source),
-            "detail": text or tech_source_label(source),
-            "iconText": "HQ",
-        }
+        key = tech_source_key(source)
+        blueprint = active_tech_upgrades.get((sender, key))
+        for entity_id in command.get("selection") or []:
+            selected_blueprint = pending_upgrades.get(int(entity_id))
+            if selected_blueprint:
+                blueprint = selected_blueprint
+                break
+        if blueprint:
+            event = rich_unit_event(blueprint, tick, tech_source_label(source), f"tech:{key}", "tech-callback")
+        else:
+            event = fallback_event(tick, tech_source_label(source), f"tech:{key}", text or tech_source_label(source), "HQ")
+        event["playerName"] = sender
+        return event
 
     if trigger == "completed" and ("enhancement" in source or "upgrade" in source or "upgrade" in text.lower()):
-        return {
-            "playerName": sender,
-            "key": f"acu:{source or text.lower()}",
-            "type": "acu",
-            "tick": tick,
-            "second": tick / 10,
-            "label": "ACU upgrade completed",
-            "detail": text or source,
-            "iconText": "ACU",
-        }
+        event = fallback_event(
+            tick,
+            "ACU upgrade completed",
+            f"acu:{source or text.lower()}",
+            text or source,
+            "ACU",
+            "acu-callback",
+        )
+        event["playerName"] = sender
+        return event
     return None
 
 
-def is_major_blueprint(event):
-    categories = set(event.get("categories") or [])
-    label = str(event.get("label") or "").lower()
-    blueprint = str(event.get("blueprint") or "").lower()
-    return (
-        "EXPERIMENTAL" in categories
-        or blueprint_tech(blueprint) == "experimental"
-        or "NUKE" in categories
-        or "SILO" in categories
-        or "STRATEGIC" in categories
-        or "experimental" in label
-        or "nuke" in label
-    )
+def completed_unit_milestones(command, tick, player):
+    blueprint = command.get("blueprint") or command.get("unit") or command.get("bp") or ""
+    if not blueprint:
+        return []
 
+    metadata = blueprint_metadata(blueprint)
+    categories = set(metadata.get("categories") or [])
+    tech = tech_number_from_categories(categories)
+    layer = category_layer(categories)
+    entity_id = command.get("entity_id") or command.get("id") or f"{blueprint}:{tick}"
+    emitted = []
 
-def could_be_major_blueprint(blueprint):
-    value = str(blueprint or "").lower()
-    if not value:
-        return False
-    tech = blueprint_tech(value)
-    kind = blueprint_kind(value)
-    return tech == "experimental" or (kind == "structure" and tech == "t3")
+    def add(event_type, key):
+        emitted.append(rich_unit_event(blueprint, tick, event_type, key))
 
+    if "FACTORY" in categories and tech in ("2", "3"):
+        add(f"T{tech} {layer} HQ completed", f"unit:{entity_id}:hq")
+        player["hqTech"].add(f"{tech}:{layer.lower()}")
+        return emitted
+    elif "FACTORY" in categories and tech == "1":
+        return emitted
 
-def major_order_event(command, tick):
-    if not could_be_major_blueprint(command.get("blueprint")):
-        return None
-    event = blueprint_event(command, tick, rich=True)
-    if not event.get("blueprint") or not is_major_blueprint(event):
-        return None
-    event.update({
-        "key": f"major:{event['blueprint'].lower()}",
-        "type": "major-order",
-        "detail": "Major build order seen",
-    })
-    return event
+    if "ANTIMISSILE" in categories and "SILO" in categories:
+        add("Strategic Missile Defence completed", f"unit:{entity_id}:smd")
+    elif ("NUKE" in categories or "STRATEGIC" in categories) and "SILO" in categories:
+        add("Strategic Missile Launcher completed", f"unit:{entity_id}:sml")
+    elif "EXPERIMENTAL" in categories:
+        add("Experimental completed", f"unit:{entity_id}:experimental")
+    elif "ENERGYPRODUCTION" in categories and tech in ("2", "3") and tech not in player["firstPower"]:
+        player["firstPower"].add(tech)
+        add(f"First T{tech} power generator completed", f"first-power:{tech}")
+    elif "ENGINEER" in categories and tech in ("2", "3") and tech not in player["firstEngineers"]:
+        player["firstEngineers"].add(tech)
+        add(f"First T{tech} engineer completed", f"first-engineer:{tech}")
+    elif "ENGINEER" not in categories and "STRUCTURE" not in categories and tech in ("2", "3") and tech not in player["firstUnitsFromHq"]:
+        player["firstUnitsFromHq"].add(tech)
+        add(f"First T{tech} unit from HQ completed", f"first-hq-unit:{tech}")
+
+    return emitted
 
 
 def parse_faf_header(raw):
@@ -422,10 +531,17 @@ def analyze(raw):
         "milestoneKeys": set(),
         "details": [],
         "detailKeys": set(),
+        "completedUnitKeys": set(),
+        "firstEngineers": set(),
+        "firstUnitsFromHq": set(),
+        "firstPower": set(),
+        "hqTech": set(),
         "status": {},
     })
     command_counts = defaultdict(int)
     source_status = {}
+    pending_upgrades = {}
+    active_tech_upgrades = {}
 
     for command in body.get("commands", []):
         name = command.get("name")
@@ -457,9 +573,20 @@ def analyze(raw):
             }
             continue
         if name == "LuaSimCallback":
-            milestone = callback_milestone(command, tick)
+            milestone = callback_milestone(command, tick, pending_upgrades, active_tech_upgrades)
             if milestone and milestone.get("playerName") in source_players:
                 player = stats[milestone["playerName"]]
+                key = milestone.get("key")
+                if key not in player["milestoneKeys"]:
+                    player["milestoneKeys"].add(key)
+                    player["milestones"].append(milestone)
+            continue
+        if name == "CreateUnit":
+            source_id = int(command.get("source") or command.get("army") or current_source or 0)
+            player_name = source_players[source_id] if source_id < len(source_players) else f"Source {source_id}"
+            player = stats[player_name]
+            for milestone in completed_unit_milestones(command, tick, player):
+                milestone["playerName"] = player_name
                 key = milestone.get("key")
                 if key not in player["milestoneKeys"]:
                     player["milestoneKeys"].add(key)
@@ -483,6 +610,10 @@ def analyze(raw):
         tech = blueprint_tech(blueprint)
         kind = blueprint_kind(blueprint)
         blueprint_key = str(blueprint or "").lower()
+        if blueprint_key and command.get("type") == 27:
+            for entity_id in command.get("entity_ids") or []:
+                pending_upgrades[int(entity_id)] = blueprint_key
+
         if blueprint_key and blueprint_key not in player["detailKeys"]:
             detail = blueprint_event(command, tick)
             detail.update({
@@ -492,11 +623,6 @@ def analyze(raw):
             })
             player["detailKeys"].add(blueprint_key)
             player["details"].append(detail)
-
-        major_order = major_order_event(command, tick) if blueprint_key else None
-        if major_order and major_order["key"] not in player["milestoneKeys"]:
-            player["milestoneKeys"].add(major_order["key"])
-            player["milestones"].append(major_order)
 
         if tech and command.get("type") == 7 and kind != "structure" and tech not in player["firstUnits"]:
             player["firstUnits"][tech] = blueprint_event(command, tick)

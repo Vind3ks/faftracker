@@ -7,6 +7,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 
+from PIL import Image
+
 
 def fetch_map_zip(map_name):
     quoted = urllib.parse.quote(map_name)
@@ -31,11 +33,27 @@ def read_preview(map_name):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
         image_name = next((name for name in names if name.lower().endswith(".png")), None)
+        scmap_name = next((name for name in names if name.lower().endswith(".scmap")), None)
         scenario_name = next((name for name in names if name.lower().endswith("_scenario.lua")), None)
         if not image_name:
             raise RuntimeError("Map zip does not contain a PNG preview.")
 
         image = archive.read(image_name)
+        image_source = image_name
+        scmap_note = None
+        if scmap_name:
+            try:
+                scmap = archive.read(scmap_name)
+                dds_offset = scmap.find(b"DDS ")
+                if dds_offset >= 0:
+                    dds_image = Image.open(io.BytesIO(scmap[dds_offset:])).convert("RGBA")
+                    dds_image = dds_image.resize((1024, 1024), Image.Resampling.LANCZOS)
+                    output = io.BytesIO()
+                    dds_image.save(output, format="PNG")
+                    image = output.getvalue()
+                    image_source = f"{scmap_name} embedded DDS"
+            except Exception as error:
+                scmap_note = str(error)
         size = None
         if scenario_name:
             try:
@@ -45,9 +63,10 @@ def read_preview(map_name):
 
         return {
             "map": map_name,
-            "imageName": image_name,
+            "imageName": image_source,
             "dataUrl": "data:image/png;base64," + base64.b64encode(image).decode("ascii"),
             "size": size,
+            "note": scmap_note,
         }
 
 

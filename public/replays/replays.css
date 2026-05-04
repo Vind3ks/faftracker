@@ -328,8 +328,6 @@ a {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #05090d;
-  image-rendering: crisp-edges;
-  image-rendering: pixelated;
 }
 
 .note {

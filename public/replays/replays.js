@@ -148,7 +148,8 @@ function syncCanvasResolution(canvas, context) {
     canvas.height = targetHeight;
   }
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.imageSmoothingEnabled = false;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   return { width: canvasCssWidth, height: canvasCssHeight };
 }
 

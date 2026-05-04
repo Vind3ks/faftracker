@@ -182,14 +182,10 @@ def blueprint_kind(blueprint):
 
 def blueprint_label(blueprint):
     value = str(blueprint or "").lower()
-    metadata = blueprint_metadata(value)
     tech = blueprint_tech(value)
     kind = blueprint_kind(value)
     if not value:
         return "Unknown"
-    unit_name = metadata.get("unitName")
-    if unit_name and unit_name.lower() != value:
-        return unit_name
     if kind == "structure" and tech in ("t2", "t3"):
         return f"{tech.upper()} structure"
     if tech:
@@ -197,19 +193,25 @@ def blueprint_label(blueprint):
     return kind.title()
 
 
-def blueprint_event(command, tick):
+def blueprint_event(command, tick, rich=False):
     blueprint = command.get("blueprint") or ""
-    metadata = blueprint_metadata(blueprint)
-    return {
+    metadata = blueprint_metadata(blueprint) if rich else {}
+    label = blueprint_label(blueprint)
+    unit_name = metadata.get("unitName")
+    if unit_name and unit_name.lower() != str(blueprint or "").lower():
+        label = unit_name
+    event = {
         "tick": tick,
         "second": tick / 10,
         "blueprint": blueprint,
-        "label": blueprint_label(blueprint),
+        "label": label,
         "kind": blueprint_kind(blueprint),
         "categories": metadata.get("categories", []),
-        "iconDataUrl": strategic_icon_data_url(blueprint),
         "source": command.get("name"),
     }
+    if rich:
+        event["iconDataUrl"] = strategic_icon_data_url(blueprint)
+    return event
 
 
 def decode_bytes(value):
@@ -301,8 +303,19 @@ def is_major_blueprint(event):
     )
 
 
+def could_be_major_blueprint(blueprint):
+    value = str(blueprint or "").lower()
+    if not value:
+        return False
+    tech = blueprint_tech(value)
+    kind = blueprint_kind(value)
+    return tech == "experimental" or (kind == "structure" and tech == "t3")
+
+
 def major_order_event(command, tick):
-    event = blueprint_event(command, tick)
+    if not could_be_major_blueprint(command.get("blueprint")):
+        return None
+    event = blueprint_event(command, tick, rich=True)
     if not event.get("blueprint") or not is_major_blueprint(event):
         return None
     event.update({

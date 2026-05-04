@@ -54,22 +54,21 @@
           </div>
           <div class="stage-controls">
             <button id="playButton" class="secondary" type="button">Play</button>
+            <select id="speedSelect" aria-label="Playback speed">
+              <option value="0.25">0.25x</option>
+              <option value="0.5" selected>0.5x</option>
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+            </select>
             <input id="timeSlider" type="range" min="0" max="0" value="0" />
             <span id="timeLabel">0:00</span>
           </div>
         </div>
-        <canvas id="heatmapCanvas" width="1100" height="460"></canvas>
+        <canvas id="heatmapCanvas" width="1200" height="1200"></canvas>
         <p id="heatmapNote" class="note"></p>
-      </section>
-
-      <section id="apmPanel" class="panel" hidden>
-        <div class="section-title">
-          <h2>Effective APM</h2>
-        </div>
-        <div id="apmTable" class="table-wrap"></div>
       </section>
     </main>
 
-    <script src="/replays/replays.js?v=20260504-parser-diagnostics"></script>
+    <script src="/replays/replays.js?v=20260504-smooth-map"></script>
   </body>
 </html>

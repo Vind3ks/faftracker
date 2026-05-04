@@ -54,6 +54,15 @@ input {
   color: var(--text);
 }
 
+select {
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  font: inherit;
+  color: var(--text);
+  background: rgba(4, 8, 13, 0.58);
+}
+
 h1,
 h2,
 p {
@@ -76,7 +85,7 @@ a {
 }
 
 .replay-shell {
-  width: min(1220px, calc(100% - 32px));
+  width: min(1440px, calc(100% - 32px));
   margin: 0 auto;
   padding: 28px 0 68px;
 }
@@ -248,7 +257,7 @@ a {
 }
 
 .stage-controls {
-  min-width: min(100%, 520px);
+  min-width: min(100%, 620px);
 }
 
 .stage-controls input {
@@ -256,9 +265,13 @@ a {
   accent-color: var(--accent);
 }
 
+.stage-controls select {
+  width: 96px;
+}
+
 .teams {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -276,19 +289,37 @@ a {
 }
 
 .player-pill {
-  display: inline-flex;
-  margin: 0 8px 8px 0;
-  padding: 7px 10px;
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 11px 12px;
   border: 1px solid rgba(112, 224, 199, 0.3);
-  border-radius: 999px;
+  border-radius: 8px;
   color: var(--text);
   background: rgba(112, 224, 199, 0.08);
   font-weight: 700;
 }
 
+.player-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.player-stats strong {
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+}
+
 .replay-stage canvas {
   width: 100%;
-  height: min(54vw, 460px);
+  max-height: min(78vh, 980px);
+  aspect-ratio: 1 / 1;
+  height: auto;
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;

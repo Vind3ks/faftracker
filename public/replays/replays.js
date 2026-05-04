@@ -12,14 +12,15 @@ const elements = {
   heatmapCanvas: document.getElementById("heatmapCanvas"),
   heatmapNote: document.getElementById("heatmapNote"),
   playButton: document.getElementById("playButton"),
+  speedSelect: document.getElementById("speedSelect"),
   timeSlider: document.getElementById("timeSlider"),
-  timeLabel: document.getElementById("timeLabel"),
-  apmPanel: document.getElementById("apmPanel"),
-  apmTable: document.getElementById("apmTable")
+  timeLabel: document.getElementById("timeLabel")
 };
 
 let currentAnalysis = null;
-let playTimer = null;
+let playAnimation = null;
+let playbackSecond = 0;
+let lastFrameTime = 0;
 let mapImage = null;
 let mapImageSource = "";
 
@@ -87,12 +88,30 @@ function renderSummary(analysis) {
   elements.summary.hidden = false;
 }
 
-function renderTeams(teams) {
+function statsByPlayer(analysis) {
+  return new Map((analysis.apm || []).map((player) => [player.name, player]));
+}
+
+function renderTeams(analysis) {
+  const teams = analysis.teams || [];
+  const apmByPlayer = statsByPlayer(analysis);
   elements.teams.innerHTML = teams.length
     ? teams.map((team) => `
       <article class="team-card">
         <h3>${escapeHtml(team.name)}</h3>
-        <div>${team.players.map((player) => `<span class="player-pill">${escapeHtml(player.name)}</span>`).join("") || "<p class=\"muted\">No players listed</p>"}</div>
+        <div>${team.players.map((player) => {
+          const stats = apmByPlayer.get(player.name) || {};
+          return `
+            <div class="player-pill">
+              <span>${escapeHtml(player.name)}</span>
+              <div class="player-stats">
+                <span><strong>${escapeHtml(formatNumber(stats.apm))}</strong>Eff. APM</span>
+                <span><strong>${escapeHtml(formatNumber(stats.effectiveActions))}</strong>Actions</span>
+                <span><strong>${escapeHtml(formatNumber(stats.rawCommands))}</strong>Raw</span>
+              </div>
+            </div>
+          `;
+        }).join("") || "<p class=\"muted\">No players listed</p>"}</div>
       </article>
     `).join("")
     : "<p class=\"muted\">No team metadata was found in this replay.</p>";
@@ -115,7 +134,7 @@ function loadMapImage(analysis) {
   mapImage.src = source;
 }
 
-function drawHeatmap(frameIndex = 0) {
+function drawHeatmap(playheadSecond = 0) {
   const canvas = elements.heatmapCanvas;
   const context = canvas.getContext("2d");
   const analysis = currentAnalysis;
@@ -132,10 +151,10 @@ function drawHeatmap(frameIndex = 0) {
   const timeline = analysis.heatmap.timeline || [];
   const players = analysis.apm || [];
   const pointsByPlayer = analysis.heatmap.points || {};
-  const plotX = 44;
-  const plotY = 34;
-  const plotW = width - 78;
-  const plotH = height - 76;
+  const plotX = 18;
+  const plotY = 18;
+  const plotW = width - 36;
+  const plotH = height - 52;
 
   if (!players.length) {
     context.fillStyle = "#9dafbf";
@@ -152,7 +171,9 @@ function drawHeatmap(frameIndex = 0) {
     maxZ: Math.max(acc.maxZ, point.z)
   }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
   const hasMapPoints = Number.isFinite(bounds.minX) && bounds.maxX > bounds.minX && bounds.maxZ > bounds.minZ;
-  const currentBucket = timeline[Math.min(frameIndex, Math.max(0, timeline.length - 1))] || { start: 0, end: 0 };
+  const currentBucket = timeline.find((bucket) => playheadSecond >= bucket.start && playheadSecond <= bucket.end)
+    || timeline[Math.min(timeline.length - 1, Math.max(0, Math.floor(playheadSecond / Math.max(1, analysis.heatmap.bucketSeconds || 1))))] 
+    || { start: 0, end: 0 };
   const mapSize = analysis.mapPreview?.size;
   const mapBounds = mapSize
     ? { minX: 0, maxX: mapSize.x, minZ: 0, maxZ: mapSize.z }
@@ -184,8 +205,8 @@ function drawHeatmap(frameIndex = 0) {
       const color = playerColor(playerIndex, players.length);
       const points = pointsByPlayer[player.name] || [];
       for (const point of points) {
-        const age = currentBucket.end - point.second;
-        if (point.second > currentBucket.end || age > Math.max(25, analysis.heatmap.bucketSeconds * 2.5)) {
+        const age = playheadSecond - point.second;
+        if (point.second > playheadSecond || age > Math.max(18, analysis.heatmap.bucketSeconds * 3)) {
           continue;
         }
         if (!canUseMapBounds) {
@@ -193,7 +214,7 @@ function drawHeatmap(frameIndex = 0) {
         }
         const x = plotX + ((point.x - mapBounds.minX) / (mapBounds.maxX - mapBounds.minX)) * plotW;
         const y = plotY + ((point.z - mapBounds.minZ) / (mapBounds.maxZ - mapBounds.minZ)) * plotH;
-        const alpha = Math.max(0.08, 1 - age / Math.max(25, analysis.heatmap.bucketSeconds * 2.5));
+        const alpha = Math.max(0.08, 1 - age / Math.max(18, analysis.heatmap.bucketSeconds * 3));
         context.globalAlpha = alpha;
         context.fillStyle = color;
         context.beginPath();
@@ -238,59 +259,23 @@ function drawHeatmap(frameIndex = 0) {
   });
   }
 
-  const cursorX = plotX + (plotW / Math.max(1, timeline.length - 1)) * Math.min(frameIndex, Math.max(0, timeline.length - 1));
-  context.strokeStyle = "#edf6fb";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.moveTo(cursorX, plotY - 10);
-  context.lineTo(cursorX, plotY + plotH + 10);
-  context.stroke();
-
   context.fillStyle = "#9dafbf";
   context.font = "13px Segoe UI";
-  context.fillText(mapImage ? "Map command playback" : "Replay time", plotX, height - 20);
+  context.fillText(`${formatTime(playheadSecond)} / ${currentAnalysis?.replay?.durationLabel || "0:00"}`, plotX, height - 20);
 }
 
 function renderHeatmap(analysis) {
   loadMapImage(analysis);
   const timeline = analysis.heatmap.timeline || [];
-  elements.timeSlider.max = String(Math.max(0, timeline.length - 1));
+  const duration = Math.max(1, analysis.replay.durationSeconds || timeline[timeline.length - 1]?.end || 1);
+  elements.timeSlider.max = String(Math.round(duration));
   elements.timeSlider.value = "0";
-  elements.timeLabel.textContent = timeline[0]?.label || "0:00";
+  playbackSecond = 0;
+  elements.timeLabel.textContent = `0:00 / ${analysis.replay.durationLabel || formatTime(duration)}`;
   const mapNote = analysis.mapPreview?.error ? ` Map preview unavailable: ${analysis.mapPreview.error}` : "";
   elements.heatmapNote.textContent = `${analysis.heatmap.note || ""}${mapNote}`;
   elements.heatmapPanel.hidden = false;
   drawHeatmap(0);
-}
-
-function renderApm(analysis) {
-  elements.apmTable.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Player</th>
-          <th>Team</th>
-          <th>Effective APM</th>
-          <th>Effective actions</th>
-          <th>Raw commands</th>
-          <th>Note</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${analysis.apm.map((row) => `
-          <tr>
-            <td>${escapeHtml(row.name)}</td>
-            <td>${escapeHtml(row.teamId)}</td>
-            <td>${escapeHtml(formatNumber(row.apm))}</td>
-            <td>${escapeHtml(formatNumber(row.effectiveActions))}</td>
-            <td>${escapeHtml(formatNumber(row.rawCommands))}</td>
-            <td>${escapeHtml(row.note || "")}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-  elements.apmPanel.hidden = false;
 }
 
 function renderParserStatus(analysis) {
@@ -314,9 +299,8 @@ function renderAnalysis(analysis) {
   currentAnalysis = analysis;
   renderParserStatus(analysis);
   renderSummary(analysis);
-  renderTeams(analysis.teams);
+  renderTeams(analysis);
   renderHeatmap(analysis);
-  renderApm(analysis);
   setMessage(analysis.parser.note, analysis.parser.available ? "good" : "muted");
 }
 
@@ -351,35 +335,50 @@ async function loadFromFile(file) {
 }
 
 function setFrame(index) {
-  const timeline = currentAnalysis?.heatmap?.timeline || [];
-  const safeIndex = Math.max(0, Math.min(Number(index || 0), Math.max(0, timeline.length - 1)));
-  elements.timeSlider.value = String(safeIndex);
-  elements.timeLabel.textContent = timeline[safeIndex]?.label || formatTime(0);
-  drawHeatmap(safeIndex);
+  const duration = Math.max(1, currentAnalysis?.replay?.durationSeconds || 1);
+  playbackSecond = Math.max(0, Math.min(Number(index || 0), duration));
+  elements.timeSlider.value = String(Math.round(playbackSecond));
+  elements.timeLabel.textContent = `${formatTime(playbackSecond)} / ${currentAnalysis?.replay?.durationLabel || formatTime(duration)}`;
+  drawHeatmap(playbackSecond);
 }
 
 function stopPlayback() {
-  if (playTimer) {
-    window.clearInterval(playTimer);
-    playTimer = null;
+  if (playAnimation) {
+    window.cancelAnimationFrame(playAnimation);
+    playAnimation = null;
   }
+  lastFrameTime = 0;
   elements.playButton.textContent = "Play";
 }
 
+function playbackStep(timestamp) {
+  if (!currentAnalysis) {
+    stopPlayback();
+    return;
+  }
+  if (!lastFrameTime) {
+    lastFrameTime = timestamp;
+  }
+  const elapsed = (timestamp - lastFrameTime) / 1000;
+  lastFrameTime = timestamp;
+  const speed = Number(elements.speedSelect.value || 0.5);
+  const duration = Math.max(1, currentAnalysis.replay.durationSeconds || 1);
+  setFrame(playbackSecond + elapsed * speed);
+  if (playbackSecond >= duration) {
+    stopPlayback();
+    return;
+  }
+  playAnimation = window.requestAnimationFrame(playbackStep);
+}
+
 function togglePlayback() {
-  if (playTimer) {
+  if (playAnimation) {
     stopPlayback();
     return;
   }
   elements.playButton.textContent = "Pause";
-  playTimer = window.setInterval(() => {
-    const next = Number(elements.timeSlider.value || 0) + 1;
-    if (next > Number(elements.timeSlider.max || 0)) {
-      stopPlayback();
-      return;
-    }
-    setFrame(next);
-  }, 160);
+  lastFrameTime = 0;
+  playAnimation = window.requestAnimationFrame(playbackStep);
 }
 
 elements.loadReplayButton.addEventListener("click", loadFromInput);

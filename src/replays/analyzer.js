@@ -228,6 +228,44 @@ function runCommandParser(buffer) {
   }
 }
 
+function runMapPreview(mapName) {
+  if (!mapName || mapName === "Unknown map") {
+    return null;
+  }
+  const bundledPython = path.join(
+    process.env.USERPROFILE || "",
+    ".cache",
+    "codex-runtimes",
+    "codex-primary-runtime",
+    "dependencies",
+    "python",
+    "python.exe"
+  );
+  const python = process.env.REPLAY_PYTHON
+    || process.env.PYTHON
+    || (process.platform === "win32" && fs.existsSync(bundledPython) ? bundledPython : null)
+    || (process.platform === "win32" ? "python" : "python3");
+  const scriptPath = path.join(__dirname, "..", "..", "scripts", "map_preview.py");
+  const result = spawnSync(python, [scriptPath], {
+    input: JSON.stringify({ map: mapName }),
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: Number(process.env.MAP_PREVIEW_TIMEOUT_MS || 30000)
+  });
+
+  if (result.status !== 0 || result.error) {
+    return {
+      error: result.error?.message || (result.stderr || result.stdout || "Map preview unavailable.").trim().slice(0, 500)
+    };
+  }
+
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    return { error: "Map preview returned invalid JSON." };
+  }
+}
+
 function mergeCommandAnalysis(base, commandAnalysis) {
   if (!commandAnalysis?.available) {
     const parserError = commandAnalysis?.error || "Replay command parser did not return command data.";
@@ -307,6 +345,7 @@ function analyzeReplayBuffer(buffer, source = {}) {
   const gameEnd = Number(header?.game_end || 0);
   const durationSeconds = gameEnd > launchedAt ? gameEnd - launchedAt : 0;
 
+  const mapName = header?.mapname || "Unknown map";
   const base = {
     source: {
       replayId: source.replayId || header?.uid || null,
@@ -318,7 +357,7 @@ function analyzeReplayBuffer(buffer, source = {}) {
     replay: {
       id: header?.uid || source.replayId || null,
       title: header?.title || "FAF replay",
-      map: header?.mapname || "Unknown map",
+      map: mapName,
       featuredMod: header?.featured_mod || null,
       gameType: header?.game_type || null,
       recorder: header?.recorder || null,
@@ -351,7 +390,11 @@ function analyzeReplayBuffer(buffer, source = {}) {
         : "Could not read a FAF replay metadata header from this file."
     }
   };
-  return mergeCommandAnalysis(base, runCommandParser(buffer));
+  const merged = mergeCommandAnalysis(base, runCommandParser(buffer));
+  return {
+    ...merged,
+    mapPreview: runMapPreview(mapName)
+  };
 }
 
 module.exports = {

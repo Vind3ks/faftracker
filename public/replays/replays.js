@@ -20,6 +20,8 @@ const elements = {
 
 let currentAnalysis = null;
 let playTimer = null;
+let mapImage = null;
+let mapImageSource = "";
 
 function setMessage(text, tone = "muted") {
   elements.message.className = `panel ${tone}`;
@@ -102,6 +104,17 @@ function playerColor(index, total) {
   return `hsl(${hue} 78% 62%)`;
 }
 
+function loadMapImage(analysis) {
+  const source = analysis.mapPreview?.dataUrl || "";
+  if (!source || source === mapImageSource) {
+    return;
+  }
+  mapImageSource = source;
+  mapImage = new Image();
+  mapImage.onload = () => drawHeatmap(Number(elements.timeSlider.value || 0));
+  mapImage.src = source;
+}
+
 function drawHeatmap(frameIndex = 0) {
   const canvas = elements.heatmapCanvas;
   const context = canvas.getContext("2d");
@@ -124,16 +137,6 @@ function drawHeatmap(frameIndex = 0) {
   const plotW = width - 78;
   const plotH = height - 76;
 
-  context.strokeStyle = "rgba(151, 175, 198, 0.18)";
-  context.lineWidth = 1;
-  for (let i = 0; i <= 8; i += 1) {
-    const x = plotX + (plotW / 8) * i;
-    context.beginPath();
-    context.moveTo(x, plotY);
-    context.lineTo(x, plotY + plotH);
-    context.stroke();
-  }
-
   if (!players.length) {
     context.fillStyle = "#9dafbf";
     context.font = "24px Segoe UI";
@@ -150,11 +153,22 @@ function drawHeatmap(frameIndex = 0) {
   }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity });
   const hasMapPoints = Number.isFinite(bounds.minX) && bounds.maxX > bounds.minX && bounds.maxZ > bounds.minZ;
   const currentBucket = timeline[Math.min(frameIndex, Math.max(0, timeline.length - 1))] || { start: 0, end: 0 };
+  const mapSize = analysis.mapPreview?.size;
+  const mapBounds = mapSize
+    ? { minX: 0, maxX: mapSize.x, minZ: 0, maxZ: mapSize.z }
+    : bounds;
+  const canUseMapBounds = Number.isFinite(mapBounds.minX) && mapBounds.maxX > mapBounds.minX && mapBounds.maxZ > mapBounds.minZ;
 
-  if (hasMapPoints) {
-    context.fillStyle = "rgba(255,255,255,0.035)";
-    context.fillRect(plotX, plotY, plotW, plotH);
-    context.strokeStyle = "rgba(151, 175, 198, 0.12)";
+  if (hasMapPoints || mapImage) {
+    if (mapImage) {
+      context.drawImage(mapImage, plotX, plotY, plotW, plotH);
+      context.fillStyle = "rgba(5, 9, 13, 0.22)";
+      context.fillRect(plotX, plotY, plotW, plotH);
+    } else {
+      context.fillStyle = "rgba(255,255,255,0.035)";
+      context.fillRect(plotX, plotY, plotW, plotH);
+    }
+    context.strokeStyle = "rgba(237, 246, 251, 0.16)";
     for (let i = 0; i <= 10; i += 1) {
       const x = plotX + (plotW / 10) * i;
       const y = plotY + (plotH / 10) * i;
@@ -174,19 +188,27 @@ function drawHeatmap(frameIndex = 0) {
         if (point.second > currentBucket.end || age > Math.max(25, analysis.heatmap.bucketSeconds * 2.5)) {
           continue;
         }
-        const x = plotX + ((point.x - bounds.minX) / (bounds.maxX - bounds.minX)) * plotW;
-        const y = plotY + ((point.z - bounds.minZ) / (bounds.maxZ - bounds.minZ)) * plotH;
+        if (!canUseMapBounds) {
+          continue;
+        }
+        const x = plotX + ((point.x - mapBounds.minX) / (mapBounds.maxX - mapBounds.minX)) * plotW;
+        const y = plotY + ((point.z - mapBounds.minZ) / (mapBounds.maxZ - mapBounds.minZ)) * plotH;
         const alpha = Math.max(0.08, 1 - age / Math.max(25, analysis.heatmap.bucketSeconds * 2.5));
         context.globalAlpha = alpha;
         context.fillStyle = color;
         context.beginPath();
-        context.arc(x, y, 4 + alpha * 7, 0, Math.PI * 2);
+        context.arc(x, y, 5 + alpha * 10, 0, Math.PI * 2);
         context.fill();
+        context.strokeStyle = "rgba(255,255,255,0.72)";
+        context.lineWidth = 1;
+        context.stroke();
       }
       context.globalAlpha = 1;
       context.fillStyle = color;
       context.font = "15px Segoe UI";
-      context.fillText(player.name, plotX + 12, plotY + 24 + playerIndex * 22);
+      context.fillRect(plotX + 12, plotY + 12 + playerIndex * 24, 12, 12);
+      context.fillStyle = "#edf6fb";
+      context.fillText(player.name, plotX + 32, plotY + 24 + playerIndex * 24);
     });
   } else {
     const laneH = plotH / players.length;
@@ -226,15 +248,17 @@ function drawHeatmap(frameIndex = 0) {
 
   context.fillStyle = "#9dafbf";
   context.font = "13px Segoe UI";
-  context.fillText("Replay time", plotX, height - 20);
+  context.fillText(mapImage ? "Map command playback" : "Replay time", plotX, height - 20);
 }
 
 function renderHeatmap(analysis) {
+  loadMapImage(analysis);
   const timeline = analysis.heatmap.timeline || [];
   elements.timeSlider.max = String(Math.max(0, timeline.length - 1));
   elements.timeSlider.value = "0";
   elements.timeLabel.textContent = timeline[0]?.label || "0:00";
-  elements.heatmapNote.textContent = analysis.heatmap.note || "";
+  const mapNote = analysis.mapPreview?.error ? ` Map preview unavailable: ${analysis.mapPreview.error}` : "";
+  elements.heatmapNote.textContent = `${analysis.heatmap.note || ""}${mapNote}`;
   elements.heatmapPanel.hidden = false;
   drawHeatmap(0);
 }

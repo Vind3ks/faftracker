@@ -1,0 +1,10 @@
+{
+  "name": "faf-scout",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first FAF analytics dashboard with a pluggable data provider layer.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
+}

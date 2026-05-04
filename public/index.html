@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FAF Tracker</title>
+    <link rel="stylesheet" href="/styles.css?v=20260504-token-balanced" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <p class="eyebrow">Forged Alliance Forever</p>
+        <h1>FAF Tracker</h1>
+        <p class="hero-copy">
+          Search a player, choose the queue, and load a clean rating report from the official FAF API.
+        </p>
+      </header>
+
+      <section class="panel controls">
+        <div class="auth-bar">
+          <div>
+            <p class="panel-label">FAF Account</p>
+            <p id="authSummary" class="status-pill neutral">Checking session</p>
+          </div>
+          <div class="auth-actions">
+            <a id="loginButton" class="button-link" href="/api/auth/login">Log in with FAF</a>
+            <button id="logoutButton" class="secondary">Log out</button>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <label class="field">
+            <span>Player</span>
+            <input id="playerInput" type="text" value="" placeholder="Enter FAF login" autocomplete="off" />
+          </label>
+
+          <label class="field">
+            <span>Queue</span>
+            <select id="queueFilterSelect">
+              <option value="all">All queues</option>
+              <option value="global">Global</option>
+              <option value="ladder_1v1">Ladder 1v1</option>
+              <option value="tmm_2v2">TMM 2v2</option>
+              <option value="tmm_3v3">TMM 3v3</option>
+              <option value="tmm_4v4_full_share">TMM 4v4</option>
+            </select>
+          </label>
+
+          <button id="loadButton" class="primary">Load player report</button>
+        </div>
+
+        <section class="token-panel">
+          <div>
+            <div class="token-steps">
+              <p class="panel-label">Temporary FAF access</p>
+              <h2>FAF login not ready yet?</h2>
+              <p>
+                Until FAF registers our redirect URI, you can paste a short-lived access token from the FAF client.
+                The token is kept only in this browser session on this server, cleared on logout or server restart,
+                and is used only to call the official FAF API.
+              </p>
+              <strong>Where to find it in the Java client:</strong>
+              <ol>
+                <li>Open the FAF Java client.</li>
+                <li>Click your username in the top-right corner.</li>
+                <li>Choose <span>Copy access token</span>.</li>
+                <li>Paste it here and press <span>Use access token</span>.</li>
+              </ol>
+            </div>
+          </div>
+          <div class="token-entry">
+            <figure class="token-image">
+              <img src="/assets/faf-access-token-help-crop.png?v=20260504-final" alt="FAF Java client username dropdown with Copy access token selected" />
+            </figure>
+            <label class="field token-field">
+              <span>FAF access token</span>
+              <textarea id="accessTokenInput" rows="3" placeholder="Paste access token here"></textarea>
+            </label>
+            <button id="importAccessTokenButton" class="secondary">Use access token</button>
+          </div>
+        </section>
+
+        <details class="session-box">
+          <summary>Advanced FAF OAuth settings</summary>
+          <p>
+            The defaults are prefilled from the current FAF client stack. Change these only if FAF
+            gives us a dedicated OAuth client or alternate endpoints later.
+          </p>
+          <div class="advanced-grid">
+            <label class="field">
+              <span>Auth mode</span>
+              <select id="authModeInput">
+                <option value="loopback">Loopback localhost</option>
+                <option value="app">Public app callback</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>OAuth client ID</span>
+              <input id="clientIdInput" type="text" />
+            </label>
+            <label class="field">
+              <span>Scopes</span>
+              <input id="scopesInput" type="text" />
+            </label>
+            <label class="field">
+              <span>OAuth base URL</span>
+              <input id="oauthBaseUrlInput" type="text" />
+            </label>
+            <label class="field">
+              <span>OIDC discovery URL</span>
+              <input id="oidcDiscoveryUrlInput" type="text" />
+            </label>
+            <label class="field">
+              <span>API base URL</span>
+              <input id="apiBaseUrlInput" type="text" />
+            </label>
+            <label class="field">
+              <span>User base URL</span>
+              <input id="userBaseUrlInput" type="text" />
+            </label>
+            <label class="field">
+              <span>App base URL</span>
+              <input id="appBaseUrlInput" type="text" />
+            </label>
+            <label class="field">
+              <span>Redirect URI</span>
+              <input id="redirectUriInput" type="text" />
+            </label>
+            <label class="field wide">
+              <span>Manual refresh token</span>
+              <textarea id="refreshTokenInput" rows="3" placeholder="Paste a FAF refresh token here if you want to import it directly"></textarea>
+            </label>
+          </div>
+          <div class="advanced-actions">
+            <button id="saveAuthConfigButton" class="secondary">Save auth settings</button>
+            <button id="importRefreshTokenButton" class="secondary">Import refresh token</button>
+          </div>
+          <div class="panel" id="oauthDiagnostics">
+            <p class="panel-label">OAuth Diagnostics</p>
+            <div id="oauthDiagnosticsBody" class="meta-card"></div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel" hidden>
+        <div class="status-grid">
+          <div>
+            <p class="panel-label">Official provider</p>
+            <p id="officialStatus" class="status-pill neutral">Checking</p>
+          </div>
+          <div>
+            <p class="panel-label">Sample provider</p>
+            <p id="sampleStatus" class="status-pill neutral">Checking</p>
+          </div>
+          <div>
+            <p class="panel-label">FAF Session</p>
+            <p id="sessionStatus" class="status-pill neutral">Deprecated</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="message" class="panel muted">
+        Enter a FAF login to load a report. If you are logged in, the button fetches the newest FAF history automatically.
+      </section>
+
+      <section id="loadingPanel" class="panel loading-panel" hidden>
+        <div class="loading-row">
+          <div class="spinner" aria-hidden="true"></div>
+          <div>
+            <p class="panel-label">Loading</p>
+            <p id="loadingPercent" class="loading-percent">0%</p>
+            <p id="loadingText" class="loading-text">Fetching FAF history...</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="overview" class="cards report-section" hidden></section>
+      <section id="overviewDisclaimer" class="overview-disclaimer report-section" hidden></section>
+
+      <section class="grid report-section" hidden>
+        <article class="panel">
+          <div class="history-header">
+            <h2>Rating Trend</h2>
+          </div>
+          <div id="ratingChart" class="chart-wrap"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Monthly Performance</h2>
+          <div id="monthlyChart" class="chart-wrap"></div>
+        </article>
+      </section>
+
+      <section class="grid report-section" hidden>
+        <article class="panel">
+          <div class="history-header">
+            <h2>Opponents</h2>
+            <div class="history-actions">
+              <input id="opponentSearchInput" class="section-search" type="search" placeholder="Search opponents" />
+              <button id="hideOpponentsButton" class="secondary" hidden>Hide all</button>
+              <button id="showMoreOpponentsButton" class="secondary">Show more opponents</button>
+            </div>
+          </div>
+          <div id="opponentsTable" class="table-wrap"></div>
+        </article>
+
+        <article class="panel">
+          <div class="history-header">
+            <h2>Teammates</h2>
+            <div class="history-actions">
+              <input id="teammateSearchInput" class="section-search" type="search" placeholder="Search teammates" />
+              <button id="hideTeammatesButton" class="secondary" hidden>Hide all</button>
+              <button id="showMoreTeammatesButton" class="secondary">Show more teammates</button>
+            </div>
+          </div>
+          <div id="teammatesTable" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section class="panel report-section" hidden>
+        <div class="history-header">
+          <h2>Map Tendencies</h2>
+          <div class="history-actions">
+            <input id="mapSearchInput" class="section-search" type="search" placeholder="Search maps" />
+            <button id="hideMapsButton" class="secondary" hidden>Hide all</button>
+            <button id="showMoreMapsButton" class="secondary">Show more maps</button>
+          </div>
+        </div>
+        <div id="mapTendenciesTable" class="table-wrap"></div>
+      </section>
+
+      <section class="grid report-section" hidden>
+        <article class="panel">
+          <h2>Player Snapshot</h2>
+          <div id="playerMeta" class="meta-card"></div>
+        </article>
+
+        <article class="panel">
+          <h2>Rating Gain Summary</h2>
+          <div id="ratingSummaryTable" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section class="panel report-section" hidden>
+        <h2>Improvement Detector</h2>
+        <div id="improvementInsights" class="insight-grid"></div>
+      </section>
+
+      <section class="panel report-section" hidden>
+        <div class="history-header">
+          <h2>Game History</h2>
+          <div class="history-actions">
+            <p id="historyFilterLabel" class="history-filter-label" hidden></p>
+            <button id="clearHistoryFilterButton" class="secondary" hidden>Show all history</button>
+            <button id="showMoreGamesButton" class="secondary">Show more</button>
+          </div>
+        </div>
+        <div id="gamesTable" class="table-wrap"></div>
+      </section>
+    </div>
+
+    <script src="/app.js?v=20260504-token-balanced"></script>
+  </body>
+  </html>

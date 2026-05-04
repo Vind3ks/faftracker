@@ -319,6 +319,22 @@ a {
   font-size: 1rem;
 }
 
+.tech-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tech-stats strong {
+  display: block;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
 .replay-stage canvas {
   width: 100%;
   max-height: min(86vh, 1120px);

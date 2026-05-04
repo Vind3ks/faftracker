@@ -59,6 +59,19 @@ def action_signature(command):
     )
 
 
+def blueprint_tech(blueprint):
+    value = str(blueprint or "").lower()
+    if len(value) < 4:
+        return None
+    if value[3] == "2":
+        return "t2"
+    if value[3] == "3":
+        return "t3"
+    if value[3] == "4":
+        return "experimental"
+    return None
+
+
 def parse_faf_header(raw):
     first_newline = raw.find(b"\n")
     if not (0 < first_newline < 128 * 1024):
@@ -149,6 +162,7 @@ def analyze(raw):
         "effectiveActions": 0,
         "points": [],
         "bursts": set(),
+        "tech": {},
     })
     command_counts = defaultdict(int)
 
@@ -172,6 +186,15 @@ def analyze(raw):
         if signature not in player["bursts"]:
             player["bursts"].add(signature)
             player["effectiveActions"] += 1
+
+        tech = blueprint_tech(command.get("blueprint"))
+        if tech and tech not in player["tech"]:
+            player["tech"][tech] = {
+                "tick": tick,
+                "second": tick / 10,
+                "blueprint": command.get("blueprint") or "",
+                "source": command.get("name"),
+            }
 
         point = target_point(command)
         if point:
@@ -209,6 +232,7 @@ def analyze(raw):
             "apm": round(apm, 1),
             "effectiveActions": effective_actions,
             "rawCommands": raw_commands,
+            "tech": player["tech"],
             "points": player["points"][:5000],
             "buckets": buckets,
         })

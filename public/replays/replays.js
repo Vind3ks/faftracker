@@ -94,6 +94,10 @@ function statsByPlayer(analysis) {
   return new Map((analysis.apm || []).map((player) => [player.name, player]));
 }
 
+function formatTechTime(entry) {
+  return entry?.second === undefined ? "n/a" : formatTime(entry.second);
+}
+
 function renderTeams(analysis) {
   const teams = analysis.teams || [];
   const apmByPlayer = statsByPlayer(analysis);
@@ -110,6 +114,11 @@ function renderTeams(analysis) {
                 <span><strong>${escapeHtml(formatNumber(stats.apm))}</strong>Eff. APM</span>
                 <span><strong>${escapeHtml(formatNumber(stats.effectiveActions))}</strong>Actions</span>
                 <span><strong>${escapeHtml(formatNumber(stats.rawCommands))}</strong>Raw</span>
+              </div>
+              <div class="tech-stats">
+                <span><strong>${escapeHtml(formatTechTime(stats.tech?.t2))}</strong>T2 order</span>
+                <span><strong>${escapeHtml(formatTechTime(stats.tech?.t3))}</strong>T3 order</span>
+                <span><strong>${escapeHtml(formatTechTime(stats.tech?.experimental))}</strong>Exp. order</span>
               </div>
             </div>
           `;
@@ -367,7 +376,7 @@ function playbackStep(timestamp) {
   }
   const elapsed = (timestamp - lastFrameTime) / 1000;
   lastFrameTime = timestamp;
-  const speed = Number(elements.speedSelect.value || 0.5);
+  const speed = Number(elements.speedSelect.value || 2);
   const duration = Math.max(1, currentAnalysis.replay.durationSeconds || 1);
   setFrame(playbackSecond + elapsed * speed);
   if (playbackSecond >= duration) {
@@ -395,7 +404,6 @@ elements.replayInput.addEventListener("keydown", (event) => {
 });
 elements.replayFileInput.addEventListener("change", () => loadFromFile(elements.replayFileInput.files?.[0]));
 elements.timeSlider.addEventListener("input", () => {
-  stopPlayback();
   setFrame(elements.timeSlider.value);
 });
 elements.playButton.addEventListener("click", togglePlayback);

@@ -319,6 +319,7 @@ function mergeCommandAnalysis(base, commandAnalysis) {
       apm: player.apm,
       effectiveActions: player.effectiveActions,
       rawCommands: player.rawCommands,
+      tech: player.tech || {},
       note: commandAnalysis.note
     })),
     heatmap: {

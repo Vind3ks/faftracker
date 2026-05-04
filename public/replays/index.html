@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FAF Replay Lab</title>
+    <link rel="stylesheet" href="/replays/replays.css?v=20260504-replay-lab" />
+  </head>
+  <body>
+    <main class="replay-shell">
+      <nav class="top-nav">
+        <a href="/">FAF Tracker</a>
+        <span>Replay Lab</span>
+      </nav>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Replay analysis</p>
+          <h1>Replay Lab</h1>
+          <p class="hero-copy">Load a replay ID, FAF replay link, or local replay file to inspect teams, timing, map metadata, activity, and effective APM.</p>
+        </div>
+      </section>
+
+      <section class="panel loader">
+        <label class="field">
+          <span>Replay ID or link</span>
+          <input id="replayInput" type="text" placeholder="25660559 or https://replay.faforever.com/25660559" autocomplete="off" />
+        </label>
+        <button id="loadReplayButton" type="button">Load replay</button>
+        <label class="file-drop">
+          <input id="replayFileInput" type="file" accept=".fafreplay,.scfareplay,application/octet-stream" />
+          <span>Choose replay file</span>
+          <strong id="fileName">No file selected</strong>
+        </label>
+      </section>
+
+      <section id="message" class="panel muted">Paste a replay ID or choose a local replay file.</section>
+
+      <section id="summary" class="summary-grid" hidden></section>
+
+      <section id="teamsPanel" class="panel" hidden>
+        <div class="section-title">
+          <h2>Teams</h2>
+        </div>
+        <div id="teams" class="teams"></div>
+      </section>
+
+      <section id="heatmapPanel" class="panel replay-stage" hidden>
+        <div class="stage-header">
+          <div>
+            <p class="eyebrow">Interactive timeline</p>
+            <h2>Activity Heatmap</h2>
+          </div>
+          <div class="stage-controls">
+            <button id="playButton" class="secondary" type="button">Play</button>
+            <input id="timeSlider" type="range" min="0" max="0" value="0" />
+            <span id="timeLabel">0:00</span>
+          </div>
+        </div>
+        <canvas id="heatmapCanvas" width="1100" height="460"></canvas>
+        <p id="heatmapNote" class="note"></p>
+      </section>
+
+      <section id="apmPanel" class="panel" hidden>
+        <div class="section-title">
+          <h2>Effective APM</h2>
+        </div>
+        <div id="apmTable" class="table-wrap"></div>
+      </section>
+    </main>
+
+    <script src="/replays/replays.js?v=20260504-replay-lab"></script>
+  </body>
+</html>

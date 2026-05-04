@@ -66,6 +66,11 @@ h2 {
   line-height: 1.55;
 }
 
+.hero-link {
+  margin: 12px 0 0;
+  font-weight: 700;
+}
+
 .panel,
 .card {
   border: 1px solid var(--line);

@@ -6,6 +6,7 @@ const { URL } = require("url");
 
 const { buildPlayerReport } = require("./src/analytics");
 const { deleteCache } = require("./src/player-cache");
+const { MAX_REPLAY_BYTES, analyzeReplayBuffer, fetchReplay } = require("./src/replays/analyzer");
 const {
   beginAuth,
   clearSession,
@@ -253,13 +254,13 @@ function getMimeType(filePath) {
   }
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let received = 0;
     req.on("data", (chunk) => {
       received += chunk.length;
-      if (received > MAX_BODY_BYTES) {
+      if (received > maxBytes) {
         const error = new Error("Request body is too large.");
         error.statusCode = 413;
         req.destroy(error);
@@ -379,6 +380,37 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/load-status") {
     return sendJson(res, 200, loadState);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/replays/analyze") {
+    const raw = await readBody(req, MAX_REPLAY_BYTES + 1024 * 1024);
+    let body;
+
+    try {
+      body = JSON.parse(raw || "{}");
+    } catch (error) {
+      return sendJson(res, 400, { error: "Request body must be valid JSON." });
+    }
+
+    try {
+      if (body.replayBase64) {
+        const buffer = Buffer.from(String(body.replayBase64), "base64");
+        if (buffer.length > MAX_REPLAY_BYTES) {
+          return sendJson(res, 413, { error: "Replay is too large to analyze here." });
+        }
+        return sendJson(res, 200, analyzeReplayBuffer(buffer, {
+          replayId: null,
+          url: body.fileName || null
+        }));
+      }
+
+      const replay = await fetchReplay(body.source);
+      return sendJson(res, 200, analyzeReplayBuffer(replay.buffer, replay));
+    } catch (error) {
+      return sendJson(res, error.statusCode || 500, {
+        error: error.message
+      });
+    }
   }
 
   if (req.method === "GET" && url.pathname === "/api/report/current") {
@@ -594,6 +626,9 @@ async function handleApi(req, res, url) {
 
 function serveStatic(req, res, url) {
   let targetPath = url.pathname === "/" ? "/index.html" : url.pathname;
+  if (url.pathname === "/replays") {
+    targetPath = "/replays/index.html";
+  }
   const resolvedPath = path.normalize(path.join(PUBLIC_DIR, targetPath));
 
   if (!resolvedPath.startsWith(PUBLIC_DIR)) {

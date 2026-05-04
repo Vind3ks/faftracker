@@ -390,13 +390,15 @@ async function handleApi(req, res, url) {
     }
 
     const queueFilter = url.searchParams.get("queue") || "all";
+    const gameLimit = url.searchParams.get("gameLimit") || "all";
     const payload = browserSession.reportPayload;
-    const report = buildPlayerReport(payload.player, payload.games, { queueFilter });
+    const report = buildPlayerReport(payload.player, payload.games, { queueFilter, gameLimit });
     return sendJson(res, 200, {
       provider: payload.provider || "official",
       providerMeta: payload.meta,
       player: payload.player,
       queueFilter,
+      gameLimit: report.gameLimit,
       report
     });
   }
@@ -533,6 +535,7 @@ async function handleApi(req, res, url) {
       loadState.message = `Starting report for ${playerRef}...`;
 
       const queueFilter = url.searchParams.get("queue") || "all";
+      const gameLimit = url.searchParams.get("gameLimit") || "all";
       const payload = await provider.getPlayerReport(playerRef, {
         sessionState,
         forceRefresh: url.searchParams.get("refresh") === "1",
@@ -544,7 +547,7 @@ async function handleApi(req, res, url) {
           loadState.message = progress.message || "Loading...";
         }
       });
-      const report = buildPlayerReport(payload.player, payload.games, { queueFilter });
+      const report = buildPlayerReport(payload.player, payload.games, { queueFilter, gameLimit });
       browserSession.reportPayload = {
         provider: providerKey,
         meta: payload.meta,
@@ -562,6 +565,7 @@ async function handleApi(req, res, url) {
         providerMeta: payload.meta,
         player: payload.player,
         queueFilter,
+        gameLimit: report.gameLimit,
         report
       });
     } catch (error) {

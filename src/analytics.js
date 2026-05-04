@@ -29,6 +29,14 @@ function normalizeQueueFilter(queueFilter) {
   return allowed.has(value) ? value : "all";
 }
 
+function normalizeGameLimit(value) {
+  if (value === null || value === undefined || value === "" || value === "all") {
+    return null;
+  }
+  const limit = Number.parseInt(value, 10);
+  return Number.isFinite(limit) && limit > 0 ? limit : null;
+}
+
 function matchesQueueFilter(game, queueFilter) {
   const filter = normalizeQueueFilter(queueFilter);
   if (filter === "all") {
@@ -41,12 +49,20 @@ function isDecisiveGame(game) {
   return game.playerOutcome === "WIN" || game.playerOutcome === "LOSS";
 }
 
+function isKnownResultGame(game) {
+  return game.playerOutcome === "WIN" || game.playerOutcome === "LOSS" || game.playerOutcome === "DRAW";
+}
+
+function isDrawGame(game) {
+  return game.playerOutcome === "DRAW";
+}
+
 function isRankedGame(game) {
   return game.ratingType && game.ratingType !== "unknown";
 }
 
 function hasKnownRatingMovement(game) {
-  return isDecisiveGame(game)
+  return isKnownResultGame(game)
     && getRatingEntries(game).some((entry) => isRealNumber(entry.delta) && Number(entry.delta) !== 0);
 }
 
@@ -70,8 +86,9 @@ function isOneVsOneGame(game) {
 
 function buildCoverage(sortedGames) {
   const withoutRatingChange = sortedGames.filter((game) => !getRatingEntries(game).length).length;
-  const withoutKnownResult = sortedGames.filter((game) => !isDecisiveGame(game)).length;
-  const withoutRatingMovement = sortedGames.filter((game) => isDecisiveGame(game) && !hasKnownRatingMovement(game)).length;
+  const drawGames = sortedGames.filter(isDrawGame).length;
+  const withoutKnownResult = sortedGames.filter((game) => !isKnownResultGame(game)).length;
+  const withoutRatingMovement = sortedGames.filter((game) => isKnownResultGame(game) && !hasKnownRatingMovement(game)).length;
   const hiddenFromGameHistory = sortedGames.filter((game) => !hasKnownRatingMovement(game)).length;
   const rankedGames = sortedGames.length - hiddenFromGameHistory;
   const rankedGameWord = rankedGames === 1 ? "game" : "games";
@@ -80,6 +97,7 @@ function buildCoverage(sortedGames) {
     totalGames: sortedGames.length,
     rankedGames,
     unrankedGames: hiddenFromGameHistory,
+    drawGames,
     withoutRatingChange,
     withoutKnownResult,
     withoutRatingMovement,
@@ -87,7 +105,8 @@ function buildCoverage(sortedGames) {
     notes: [
       `The top W/L, win rate, recent form, and streak cards use only the ${rankedGames} ranked ${rankedGameWord} with actual rating gain or loss.`,
       `${hiddenFromGameHistory} games have no actual rating gain or loss. They are hidden from Game History and excluded from rating charts, Rating Gain Summary, best/worst days and months, and map rating trends.`,
-      `${withoutKnownResult} games have no known win/loss result. They are excluded from W/L and streak calculations.`
+      `${drawGames} games are draws. Draws can have rating gain or loss, so they are kept in rated rating-delta sections, but excluded from W/L and streak calculations.`,
+      `${withoutKnownResult} games have no known win/loss/draw result. They are excluded from W/L and streak calculations.`
     ].filter((note) => !note.startsWith("0 games"))
   };
 }
@@ -273,10 +292,13 @@ function buildMonthlyTimeline(sortedGames) {
       continue;
     }
 
-    const bucket = months.get(key) || { month: key, games: 0, wins: 0, ratingDelta: 0 };
+    const bucket = months.get(key) || { month: key, games: 0, wins: 0, losses: 0, ratingDelta: 0 };
     bucket.games += 1;
     if (game.playerOutcome === "WIN") {
       bucket.wins += 1;
+    }
+    if (game.playerOutcome === "LOSS") {
+      bucket.losses += 1;
     }
     bucket.ratingDelta += ratingMovementTotal(game);
     months.set(key, bucket);
@@ -289,8 +311,9 @@ function buildMonthlyTimeline(sortedGames) {
       month: entry.month,
       games: entry.games,
       wins: entry.wins,
-      losses: entry.games - entry.wins,
-      winRate: round(percent(entry.wins, entry.games)),
+      losses: entry.losses,
+      draws: entry.games - entry.wins - entry.losses,
+      winRate: round(percent(entry.wins, entry.wins + entry.losses)),
       ratingDelta: round(entry.ratingDelta, 2)
     }));
 }
@@ -308,10 +331,13 @@ function buildDailyTimeline(sortedGames) {
       continue;
     }
 
-    const bucket = days.get(key) || { day: key, games: 0, wins: 0, ratingDelta: 0 };
+    const bucket = days.get(key) || { day: key, games: 0, wins: 0, losses: 0, ratingDelta: 0 };
     bucket.games += 1;
     if (game.playerOutcome === "WIN") {
       bucket.wins += 1;
+    }
+    if (game.playerOutcome === "LOSS") {
+      bucket.losses += 1;
     }
     bucket.ratingDelta += ratingMovementTotal(game);
     days.set(key, bucket);
@@ -323,8 +349,9 @@ function buildDailyTimeline(sortedGames) {
       day: entry.day,
       games: entry.games,
       wins: entry.wins,
-      losses: entry.games - entry.wins,
-      winRate: round(percent(entry.wins, entry.games)),
+      losses: entry.losses,
+      draws: entry.games - entry.wins - entry.losses,
+      winRate: round(percent(entry.wins, entry.wins + entry.losses)),
       ratingDelta: round(entry.ratingDelta, 2)
     }));
 }
@@ -382,7 +409,7 @@ function buildMonthlyPerformanceByMode(sortedGames) {
   const buckets = new Map();
 
   for (const game of [...sortedGames].reverse()) {
-    if (!isDecisiveGame(game)) {
+    if (!hasKnownRatingMovement(game)) {
       continue;
     }
 
@@ -405,13 +432,16 @@ function buildMonthlyPerformanceByMode(sortedGames) {
         games: 0,
         wins: 0,
         losses: 0,
+        draws: 0,
         ratingDelta: 0
       };
       bucket.games += 1;
       if (game.playerOutcome === "WIN") {
         bucket.wins += 1;
-      } else {
+      } else if (game.playerOutcome === "LOSS") {
         bucket.losses += 1;
+      } else if (game.playerOutcome === "DRAW") {
+        bucket.draws += 1;
       }
       bucket.ratingDelta += Number(entry.delta);
       buckets.set(bucketKey, bucket);
@@ -427,6 +457,7 @@ function buildMonthlyPerformanceByMode(sortedGames) {
       games: entry.games,
       wins: entry.wins,
       losses: entry.losses,
+      draws: entry.draws,
       gameScore: entry.wins - entry.losses,
       ratingDelta: round(entry.ratingDelta, 2)
     }));
@@ -436,22 +467,22 @@ function buildImprovementDetector(sortedGames, monthlyPerformance, dailyPerforma
   const bestMonths = [...monthlyPerformance]
     .filter((entry) => entry.games >= 5)
     .sort((a, b) => b.ratingDelta - a.ratingDelta || b.winRate - a.winRate)
-    .slice(0, 3);
+    .slice(0, 12);
 
   const worstMonths = [...monthlyPerformance]
     .filter((entry) => entry.games >= 5)
     .sort((a, b) => a.ratingDelta - b.ratingDelta || a.winRate - b.winRate)
-    .slice(0, 3);
+    .slice(0, 12);
 
   const bestDays = [...dailyPerformance]
     .filter((entry) => entry.games >= 3)
     .sort((a, b) => b.ratingDelta - a.ratingDelta || b.winRate - a.winRate)
-    .slice(0, 3);
+    .slice(0, 12);
 
   const worstDays = [...dailyPerformance]
     .filter((entry) => entry.games >= 3)
     .sort((a, b) => a.ratingDelta - b.ratingDelta || a.winRate - b.winRate)
-    .slice(0, 3);
+    .slice(0, 12);
 
   let currentLossStreak = 0;
   let worstLossStreak = 0;
@@ -562,12 +593,15 @@ function buildImprovementDetector(sortedGames, monthlyPerformance, dailyPerforma
 
 function buildPlayerReport(player, games, options = {}) {
   const queueFilter = normalizeQueueFilter(options.queueFilter);
+  const gameLimit = normalizeGameLimit(options.gameLimit);
   const filteredGames = games.filter((game) => matchesQueueFilter(game, queueFilter));
-  const sortedGames = [...filteredGames].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  const allSortedGames = [...filteredGames].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  const sortedGames = gameLimit ? allSortedGames.slice(0, gameLimit) : allSortedGames;
   const ratingMovementGames = sortedGames.filter((game) => hasKnownRatingMovement(game));
   const unrankedGames = sortedGames.filter((game) => !hasKnownRatingMovement(game));
   const decisiveGames = sortedGames.filter((game) => game.playerOutcome === "WIN" || game.playerOutcome === "LOSS");
   const rankedDecisiveGames = ratingMovementGames.filter((game) => game.playerOutcome === "WIN" || game.playerOutcome === "LOSS");
+  const rankedDrawGames = ratingMovementGames.filter(isDrawGame);
   const wins = rankedDecisiveGames.filter((game) => game.playerOutcome === "WIN").length;
   const losses = rankedDecisiveGames.filter((game) => game.playerOutcome === "LOSS").length;
   const recentRankedGames = ratingMovementGames.slice(0, 25);
@@ -585,18 +619,20 @@ function buildPlayerReport(player, games, options = {}) {
     const mapBucket = maps.get(mapKey) || {
       name: mapKey,
       games: 0,
+      ratedGames: 0,
       wins: 0,
       losses: 0,
-      unknownGames: 0,
-      unrankedGames: 0,
+      draws: 0,
+      noResultGames: 0,
+      noRatingGames: 0,
       ratingDelta: 0,
       opponents: new Map()
     };
 
-    const decisive = isDecisiveGame(game);
-    const ranked = isRankedGame(game);
-    if (decisive && ranked) {
-      mapBucket.games += 1;
+    const rated = hasKnownRatingMovement(game);
+    mapBucket.games += 1;
+    if (rated) {
+      mapBucket.ratedGames += 1;
       if (isWin) {
         mapBucket.wins += 1;
       }
@@ -607,17 +643,18 @@ function buildPlayerReport(player, games, options = {}) {
           mapBucket.opponents.set(opponent.login, value + 1);
         }
       }
-    } else if (!decisive) {
-      mapBucket.unknownGames += 1;
-    } else if (!ranked) {
-      mapBucket.unrankedGames += 1;
-    }
-    if (hasKnownRatingMovement(game)) {
+      if (isDrawGame(game)) {
+        mapBucket.draws += 1;
+      }
       mapBucket.ratingDelta += ratingMovementTotal(game);
+    } else if (!isKnownResultGame(game)) {
+      mapBucket.noResultGames += 1;
+    } else {
+      mapBucket.noRatingGames += 1;
     }
     maps.set(mapKey, mapBucket);
 
-    if (decisive) {
+    if (hasKnownRatingMovement(game)) {
       for (const ratingEntry of getRatingEntries(game)) {
         const delta = Number(ratingEntry.delta);
         if (ratingEntry.ratingType === "unknown" || !isRealNumber(ratingEntry.delta) || delta === 0) {
@@ -629,6 +666,7 @@ function buildPlayerReport(player, games, options = {}) {
           games: 0,
           wins: 0,
           losses: 0,
+          draws: 0,
           totalDelta: 0
         };
         ratingBucket.games += 1;
@@ -637,6 +675,9 @@ function buildPlayerReport(player, games, options = {}) {
         }
         if (isLoss) {
           ratingBucket.losses += 1;
+        }
+        if (isDrawGame(game)) {
+          ratingBucket.draws += 1;
         }
         ratingBucket.totalDelta += delta;
         ratingTotals.set(ratingKey, ratingBucket);
@@ -704,11 +745,13 @@ function buildPlayerReport(player, games, options = {}) {
     .map((entry) => ({
       name: entry.name,
       games: entry.games,
+      ratedGames: entry.ratedGames,
       wins: entry.wins,
       losses: entry.losses,
-      unknownGames: entry.unknownGames,
-      unrankedGames: entry.unrankedGames,
-      winRate: round(percent(entry.wins, entry.games)),
+      draws: entry.draws,
+      noResultGames: entry.noResultGames,
+      noRatingGames: entry.noRatingGames,
+      winRate: round(percent(entry.wins, entry.wins + entry.losses)),
       ratingDelta: round(entry.ratingDelta, 2),
       topLossOpponents: [...entry.opponents.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -723,7 +766,8 @@ function buildPlayerReport(player, games, options = {}) {
       games: entry.games,
       wins: entry.wins,
       losses: entry.losses,
-      winRate: round(percent(entry.wins, entry.games)),
+      draws: entry.draws,
+      winRate: round(percent(entry.wins, entry.wins + entry.losses)),
       totalDelta: round(entry.totalDelta, 2),
       averageDelta: round(entry.totalDelta / Math.max(entry.games, 1), 2)
     }));
@@ -741,10 +785,13 @@ function buildPlayerReport(player, games, options = {}) {
   return {
     overview: {
       totalGames: sortedGames.length,
+      availableGames: allSortedGames.length,
+      gameLimit,
       rankedGames: ratingMovementGames.length,
       unrankedGames: unrankedGames.length,
       decisiveGames: decisiveGames.length,
       rankedDecisiveGames: rankedDecisiveGames.length,
+      draws: rankedDrawGames.length,
       wins,
       losses,
       winRate: round(percent(wins, rankedDecisiveGames.length)),
@@ -756,6 +803,7 @@ function buildPlayerReport(player, games, options = {}) {
       totalRatingDelta: overallRatingDelta
     },
     queueFilter,
+    gameLimit,
     topOpponents,
     topTeammates,
     allOpponents,

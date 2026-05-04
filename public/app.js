@@ -1,6 +1,9 @@
 ﻿const elements = {
   playerInput: document.getElementById("playerInput"),
   queueFilterSelect: document.getElementById("queueFilterSelect"),
+  gameLimitSelect: document.getElementById("gameLimitSelect"),
+  customGameLimitField: document.getElementById("customGameLimitField"),
+  customGameLimitInput: document.getElementById("customGameLimitInput"),
   loadButton: document.getElementById("loadButton"),
   loginButton: document.getElementById("loginButton"),
   logoutButton: document.getElementById("logoutButton"),
@@ -30,14 +33,20 @@
   oauthDiagnosticsBody: document.getElementById("oauthDiagnosticsBody"),
   overview: document.getElementById("overview"),
   overviewDisclaimer: document.getElementById("overviewDisclaimer"),
+  reportFilterPlayer: document.getElementById("reportFilterPlayer"),
+  reportFilters: document.getElementById("reportFilters"),
+  collapseFiltersButton: document.getElementById("collapseFiltersButton"),
+  showFiltersButton: document.getElementById("showFiltersButton"),
   ratingChart: document.getElementById("ratingChart"),
   monthlyChart: document.getElementById("monthlyChart"),
   opponentsTable: document.getElementById("opponentsTable"),
   opponentSearchInput: document.getElementById("opponentSearchInput"),
+  hideSmallOpponentsButton: document.getElementById("hideSmallOpponentsButton"),
   hideOpponentsButton: document.getElementById("hideOpponentsButton"),
   showMoreOpponentsButton: document.getElementById("showMoreOpponentsButton"),
   teammatesTable: document.getElementById("teammatesTable"),
   teammateSearchInput: document.getElementById("teammateSearchInput"),
+  hideSmallTeammatesButton: document.getElementById("hideSmallTeammatesButton"),
   hideTeammatesButton: document.getElementById("hideTeammatesButton"),
   showMoreTeammatesButton: document.getElementById("showMoreTeammatesButton"),
   mapTendenciesTable: document.getElementById("mapTendenciesTable"),
@@ -53,14 +62,15 @@
   historyFilterLabel: document.getElementById("historyFilterLabel"),
   officialStatus: document.getElementById("officialStatus"),
   sampleStatus: document.getElementById("sampleStatus"),
-  sessionStatus: document.getElementById("sessionStatus")
+  sessionStatus: document.getElementById("sessionStatus"),
+  scrollTopButton: document.getElementById("scrollTopButton")
 };
 
 const reportSections = [...document.querySelectorAll(".report-section")];
 const gameHistoryState = { allGames: [], filteredGames: [], visibleCount: 10, step: 25, filterLabel: "" };
 const relationshipState = {
-  opponents: { visibleCount: 8, step: 20, query: "" },
-  teammates: { visibleCount: 8, step: 20, query: "" }
+  opponents: { visibleCount: 8, step: 20, query: "", minGames: 0 },
+  teammates: { visibleCount: 8, step: 20, query: "", minGames: 0 }
 };
 const mapTendencyState = { visibleCount: 8, step: 12, query: "" };
 const chartVisibilityState = {
@@ -75,6 +85,12 @@ const chartPeriodState = {
   rating: { preset: "all", from: "", to: "" },
   monthly: { preset: "all", from: "", to: "" }
 };
+const insightExpandedState = {
+  bestMonths: false,
+  worstMonths: false,
+  bestDays: false,
+  worstDays: false
+};
 const tableSortState = {
   opponents: { key: "games", direction: "desc" },
   teammates: { key: "games", direction: "desc" },
@@ -86,6 +102,8 @@ let currentPayload = null;
 let loadingPoll = null;
 let lastRequest = null;
 let updateToastTimeout = null;
+let filtersCollapsed = false;
+let filtersStuck = false;
 
 function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 0) {
   elements.loadingPanel.hidden = !isLoading;
@@ -94,6 +112,8 @@ function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 
   elements.loadButton.disabled = isLoading;
   elements.playerInput.disabled = isLoading;
   elements.queueFilterSelect.disabled = isLoading;
+  elements.gameLimitSelect.disabled = isLoading;
+  elements.customGameLimitInput.disabled = isLoading;
 }
 
 function setMessage(text, tone = "muted") {
@@ -109,7 +129,15 @@ function getCurrentReportQueue() {
   return currentPayload?.queueFilter || currentReport?.queueFilter || lastRequest?.queue || "all";
 }
 
-function isCurrentReportRequest(player, queue) {
+function getCurrentReportGameLimit() {
+  return currentPayload?.gameLimit || currentReport?.gameLimit || lastRequest?.gameLimit || "all";
+}
+
+function formatGameLimitLabel(value) {
+  return String(value || "all") === "all" ? "all loaded games" : `last ${value} games`;
+}
+
+function isCurrentReportRequest(player, queue, gameLimit) {
   if (!currentPayload) {
     return false;
   }
@@ -118,7 +146,8 @@ function isCurrentReportRequest(player, queue) {
   const currentId = normalizeReportPlayer(currentPayload.player?.id);
   return Boolean(requestedPlayer)
     && (requestedPlayer === currentLogin || requestedPlayer === currentId)
-    && String(queue || "all") === String(getCurrentReportQueue() || "all");
+    && String(queue || "all") === String(getCurrentReportQueue() || "all")
+    && String(gameLimit || "all") === String(getCurrentReportGameLimit() || "all");
 }
 
 function hideUpdateToast() {
@@ -148,6 +177,7 @@ function setReportVisible(isVisible) {
   for (const section of reportSections) {
     section.hidden = !isVisible;
   }
+  syncFilterToolbarVisibility();
 }
 
 function escapeHtml(value) {
@@ -178,14 +208,19 @@ function renderStatus(el, status) {
 
 function renderCards(report) {
   const overview = report.overview || {};
+  const gameScope = overview.gameLimit
+    ? `Last ${overview.totalGames}`
+    : "All loaded";
   const rankedGames = Number(overview.rankedGames || 0);
   const unrankedGames = Number(overview.unrankedGames || 0);
+  const draws = Number(overview.draws || 0);
   const maxWinStreak = overview.maxStreaks?.win || { size: 0, monthRange: "No games", gameIds: [] };
   const maxLossStreak = overview.maxStreaks?.loss || { size: 0, monthRange: "No games", gameIds: [] };
   const streakButton = (streak, label) => streak.gameIds?.length
     ? `<button class="secondary stat-link" type="button" data-streak-filter="${escapeHtml(streak.gameIds.join(","))}" data-streak-label="${escapeHtml(`${label}, ${streak.monthRange}`)}">View replays</button>`
     : "";
   const cards = [
+    { label: "Game sample", value: gameScope },
     { label: "Loaded games", value: overview.totalGames },
     { label: "Ranked games", value: rankedGames },
     { label: "Unranked games", value: unrankedGames },
@@ -193,7 +228,6 @@ function renderCards(report) {
     { label: "Ranked win rate", value: formatPercent(overview.winRate) },
     { label: "Recent ranked 25", value: formatPercent(overview.recentWinRate) },
     { label: "Avg duration", value: `${overview.averageDurationMinutes} min` },
-    { label: "Rating delta", value: formatSigned(overview.totalRatingDelta) },
     {
       label: "Max win streak",
       value: maxWinStreak.size ? `WIN x${maxWinStreak.size}` : "No wins",
@@ -218,9 +252,59 @@ function renderCards(report) {
   `).join("");
   elements.overviewDisclaimer.innerHTML = `
     <strong>Ranked-only W/L:</strong>
-    Win/loss ratio, win rate, recent form, and streak use only games with actual rating gain or loss.
+    Win/loss ratio, win rate, recent form, and streak use only wins/losses with actual rating gain or loss.
+    ${draws ? `${escapeHtml(draws)} rating-moving draws are counted as ranked games, shown in history, and excluded from W/L and streaks.` : ""}
     ${escapeHtml(unrankedGames)} loaded games without rating movement are counted as unranked and excluded from those cards.
   `;
+}
+
+function renderReportFilters(payload) {
+  const playerName = payload?.player?.login || "Current report";
+  elements.reportFilterPlayer.textContent = playerName;
+  syncFilterToolbarVisibility();
+}
+
+function syncFilterToolbarVisibility() {
+  if (!elements.reportFilters || !elements.showFiltersButton) {
+    return;
+  }
+  const hasReport = Boolean(currentReport);
+  elements.reportFilters.hidden = !hasReport;
+  filtersStuck = hasReport && !filtersCollapsed && window.scrollY > 0 && elements.reportFilters.getBoundingClientRect().top <= 12;
+  elements.reportFilters.classList.toggle("is-stuck", filtersStuck);
+  elements.reportFilters.classList.toggle("is-collapsed", hasReport && filtersCollapsed);
+  elements.showFiltersButton.hidden = !hasReport || !filtersCollapsed;
+}
+
+function syncScrollTopButton() {
+  if (!elements.scrollTopButton) {
+    return;
+  }
+  elements.scrollTopButton.hidden = window.scrollY < 240;
+}
+
+function syncScrollUi() {
+  syncScrollTopButton();
+  syncFilterToolbarVisibility();
+}
+
+function getSelectedGameLimit() {
+  if (elements.gameLimitSelect.value !== "custom") {
+    return elements.gameLimitSelect.value;
+  }
+  const value = Number.parseInt(elements.customGameLimitInput.value, 10);
+  return Number.isFinite(value) && value > 0 ? String(value) : "all";
+}
+
+function syncCustomGameLimitVisibility() {
+  elements.customGameLimitField.hidden = elements.gameLimitSelect.value !== "custom";
+}
+
+function updateSmallRelationshipButton(tableId) {
+  const button = tableId === "opponents" ? elements.hideSmallOpponentsButton : elements.hideSmallTeammatesButton;
+  const active = relationshipState[tableId].minGames >= 20;
+  button.classList.toggle("active", active);
+  button.textContent = active ? "Show all games" : "Hide <20 games";
 }
 
 function sortIconFor(tableId, key) {
@@ -722,11 +806,13 @@ function aggregateMonthlySeries(series) {
         label: point.label,
         wins: 0,
         losses: 0,
+        draws: 0,
         games: 0,
         ratingDelta: 0
       };
       bucket.wins += Number(point.wins || 0);
       bucket.losses += Number(point.losses || 0);
+      bucket.draws += Number(point.draws || 0);
       bucket.games += Number(point.games || 0);
       bucket.ratingDelta += Number(point.ratingDelta || 0);
       buckets.set(point.label, bucket);
@@ -741,18 +827,20 @@ function aggregateMonthlySeries(series) {
       .map((point) => ({
         ...point,
         value: point.wins - point.losses,
-        displayValue: `${point.wins}-${point.losses} over ${point.games} rated games`
+        displayValue: `${point.wins}-${point.losses}${point.draws ? `, ${point.draws} draws` : ""} over ${point.games} rated games`
       }))
   }];
 }
 
 function renderRelationshipTables(report) {
   const opponentRows = sortRows(
-    filterNamedRows(report.allOpponents || report.topOpponents || [], relationshipState.opponents.query),
+    filterNamedRows(report.allOpponents || report.topOpponents || [], relationshipState.opponents.query)
+      .filter((row) => Number(row.games || 0) >= relationshipState.opponents.minGames),
     tableSortState.opponents
   );
   const teammateRows = sortRows(
-    filterNamedRows(report.allTeammates || report.topTeammates || [], relationshipState.teammates.query),
+    filterNamedRows(report.allTeammates || report.topTeammates || [], relationshipState.teammates.query)
+      .filter((row) => Number(row.games || 0) >= relationshipState.teammates.minGames),
     tableSortState.teammates
   );
   const visibleOpponents = opponentRows.slice(0, relationshipState.opponents.visibleCount);
@@ -818,6 +906,8 @@ function renderRelationshipTables(report) {
 
   updateShowMoreRelationshipButton("opponents", opponentRows.length);
   updateShowMoreRelationshipButton("teammates", teammateRows.length);
+  updateSmallRelationshipButton("opponents");
+  updateSmallRelationshipButton("teammates");
 }
 
 function renderMapTendencies(report) {
@@ -826,30 +916,35 @@ function renderMapTendencies(report) {
   const m = {
     name: sortIconFor("maps", "name"),
     games: sortIconFor("maps", "games"),
+    ratedGames: sortIconFor("maps", "ratedGames"),
     winRate: sortIconFor("maps", "winRate"),
     ratingDelta: sortIconFor("maps", "ratingDelta"),
-    unknownGames: sortIconFor("maps", "unknownGames"),
-    unrankedGames: sortIconFor("maps", "unrankedGames")
+    noRatingGames: sortIconFor("maps", "noRatingGames"),
+    noResultGames: sortIconFor("maps", "noResultGames")
   };
 
   renderTable(
     elements.mapTendenciesTable,
     [
       { label: "Map", sortable: true, sortKey: "name", tableId: "maps", sortActive: m.name.active, sortIcon: m.name.icon },
-      { label: "Games", sortable: true, sortKey: "games", tableId: "maps", sortActive: m.games.active, sortIcon: m.games.icon },
+      { label: "Total", sortable: true, sortKey: "games", tableId: "maps", sortActive: m.games.active, sortIcon: m.games.icon },
+      { label: "Rated", sortable: true, sortKey: "ratedGames", tableId: "maps", sortActive: m.ratedGames.active, sortIcon: m.ratedGames.icon },
+      { label: "W-L-D" },
       { label: "Win rate", sortable: true, sortKey: "winRate", tableId: "maps", sortActive: m.winRate.active, sortIcon: m.winRate.icon },
       { label: "Rating delta", sortable: true, sortKey: "ratingDelta", tableId: "maps", sortActive: m.ratingDelta.active, sortIcon: m.ratingDelta.icon },
-      { label: "Unknown", sortable: true, sortKey: "unknownGames", tableId: "maps", sortActive: m.unknownGames.active, sortIcon: m.unknownGames.icon },
-      { label: "Unranked", sortable: true, sortKey: "unrankedGames", tableId: "maps", sortActive: m.unrankedGames.active, sortIcon: m.unrankedGames.icon },
+      { label: "Unranked", sortable: true, sortKey: "noRatingGames", tableId: "maps", sortActive: m.noRatingGames.active, sortIcon: m.noRatingGames.icon },
+      { label: "No result", sortable: true, sortKey: "noResultGames", tableId: "maps", sortActive: m.noResultGames.active, sortIcon: m.noResultGames.icon },
       { label: "Most losses to" }
     ],
     visibleMaps.map((row) => [
       escapeHtml(row.name),
       escapeHtml(row.games),
+      escapeHtml(row.ratedGames),
+      escapeHtml(`${row.wins || 0}-${row.losses || 0}-${row.draws || 0}`),
       escapeHtml(formatPercent(row.winRate)),
       escapeHtml(formatSigned(row.ratingDelta)),
-      escapeHtml(row.unknownGames),
-      escapeHtml(row.unrankedGames),
+      escapeHtml(row.noRatingGames || 0),
+      escapeHtml(row.noResultGames || 0),
       escapeHtml(
         row.topLossOpponents.length
           ? row.topLossOpponents.map((entry) => `${entry.name} (${entry.losses})`).join(", ")
@@ -858,54 +953,60 @@ function renderMapTendencies(report) {
     ]),
     mapTendencyState.query ? "No maps match that search." : "No map tendency data yet."
   );
+  elements.mapTendenciesTable.insertAdjacentHTML(
+    "afterbegin",
+    `<p class="history-disclaimer"><strong>Map columns:</strong> Total is every loaded game on that map. Rated is games with actual rating gain/loss, including draws. W-L-D is rated wins/losses/draws. Win rate ignores draws. Unranked means known result but no rating movement; No result means FAF did not give usable win/loss/draw.</p>`
+  );
 
   updateShowMoreMapsButton(mapRows.length);
 }
 
 function renderImprovement(report) {
   const { improvement } = report;
-  const renderPeriodLinks = (entries, key, emptyText) => {
+  const renderPeriodLinks = (entries, key, emptyText, listId, extraLineForEntry = null) => {
     if (!entries.length) {
       return emptyText;
     }
 
-    return `<div class="insight-list">${entries.map((entry) => `
+    const isExpanded = Boolean(insightExpandedState[listId]);
+    const visibleEntries = isExpanded ? entries : entries.slice(0, 3);
+    const toggle = entries.length > 3
+      ? `<button class="secondary insight-more-button" type="button" data-insight-toggle="${escapeHtml(listId)}">${isExpanded ? "Hide" : `Show more (${entries.length - 3})`}</button>`
+      : "";
+
+    return `<div class="insight-list">${visibleEntries.map((entry, index) => `
       <div class="insight-line">
         <div>
           <strong>${escapeHtml(entry[key])}</strong><br />
-          ${escapeHtml(`${formatSigned(entry.ratingDelta)}, ${formatPercent(entry.winRate)} over ${entry.games} rated games`)}
+          ${escapeHtml(`${formatSigned(entry.ratingDelta)}, ${formatPercent(entry.winRate)} over ${entry.games} rated games${extraLineForEntry ? extraLineForEntry(entry, index) : ""}`)}
         </div>
         <button class="secondary insight-button" type="button" data-month-filter="${escapeHtml(entry[key])}">View replays</button>
       </div>
-    `).join("")}</div>`;
+    `).join("")}</div>${toggle}`;
   };
 
   const cards = [
     {
       title: "Best Months",
-      body: renderPeriodLinks(improvement.bestMonths, "month", "Not enough monthly volume yet.")
+      body: renderPeriodLinks(improvement.bestMonths, "month", "Not enough monthly volume yet.", "bestMonths")
     },
     {
       title: "The Tilt Zone",
-      body: improvement.worstMonths.length
-        ? `<div class="insight-list">${improvement.worstMonths.map((entry, index) => `
-          <div class="insight-line">
-            <div>
-              <strong>${escapeHtml(entry.month)}</strong><br />
-              ${escapeHtml(`${formatSigned(entry.ratingDelta)}, ${formatPercent(entry.winRate)} over ${entry.games} rated games${index === 0 ? `, worst loss streak ${improvement.worstLossStreak}` : ""}`)}
-            </div>
-            <button class="secondary insight-button" type="button" data-month-filter="${escapeHtml(entry.month)}">View replays</button>
-          </div>
-        `).join("")}</div>`
-        : "No clear bad run detected yet."
+      body: renderPeriodLinks(
+        improvement.worstMonths,
+        "month",
+        "No clear bad run detected yet.",
+        "worstMonths",
+        (_entry, index) => index === 0 ? `, worst loss streak ${improvement.worstLossStreak}` : ""
+      )
     },
     {
       title: "Best Days",
-      body: renderPeriodLinks(improvement.bestDays || [], "day", "Not enough daily volume yet.")
+      body: renderPeriodLinks(improvement.bestDays || [], "day", "Not enough daily volume yet.", "bestDays")
     },
     {
       title: "Rough Days",
-      body: renderPeriodLinks(improvement.worstDays || [], "day", "No rough rated day stands out yet.")
+      body: renderPeriodLinks(improvement.worstDays || [], "day", "No rough rated day stands out yet.", "worstDays")
     },
     {
       title: "Maps Gaining Rating Lately",
@@ -952,7 +1053,7 @@ function renderGameHistory() {
       escapeHtml((game.startedAt || "").slice(0, 10)),
       escapeHtml(displayQueueName(game)),
       escapeHtml(displayMapName(game.mapName)),
-      `<span class="result ${game.playerOutcome === "WIN" ? "win" : game.playerOutcome === "LOSS" ? "loss" : ""}">${escapeHtml(game.playerOutcome)}</span>`,
+      `<span class="result ${game.playerOutcome === "WIN" ? "win" : game.playerOutcome === "LOSS" ? "loss" : game.playerOutcome === "DRAW" ? "draw" : ""}">${escapeHtml(game.playerOutcome)}</span>`,
       escapeHtml(formatSigned(game.ratingDelta)),
       `<a href="${escapeHtml(game.replayUrl)}" target="_blank" rel="noreferrer">#${escapeHtml(game.replayId)}</a>`
     ]),
@@ -998,6 +1099,7 @@ function renderReport(payload) {
   currentPayload = payload;
   currentReport = report;
   renderCards(report);
+  renderReportFilters(payload);
   renderPlayerMeta(player, providerMeta, report);
   const ratingSeries = groupSeries(
     report.charts.ratingTimeline || [],
@@ -1031,7 +1133,7 @@ function renderReport(payload) {
       const number = Number(value || 0);
       return `${number > 0 ? "+" : ""}${Math.round(number)} games`;
     },
-    (point) => `${point.wins}-${point.losses} over ${point.games} rated games`
+    (point) => `${point.wins}-${point.losses}${point.draws ? `, ${point.draws} draws` : ""} over ${point.games} rated games`
   );
   syncChartPeriod("monthly", monthlySeries);
   const periodMonthlySeries = filterSeriesByPeriod(monthlySeries, "monthly");
@@ -1056,12 +1158,13 @@ function renderReport(payload) {
   renderImprovement(report);
   renderTable(
     elements.ratingSummaryTable,
-    [{ label: "Queue" }, { label: "Games" }, { label: "Win rate" }, { label: "Net rating" }, { label: "Avg/game" }],
+    [{ label: "Queue" }, { label: "Games" }, { label: "Draws" }, { label: "Win %" }, { label: "Net" }, { label: "Avg" }],
     report.ratingSummary
       .filter((row) => row.name && row.name !== "unknown" && row.name !== "no_rating_change" && Number(row.games || 0) > 0)
       .map((row) => [
       escapeHtml(displayModeName(row.name)),
       escapeHtml(row.games),
+      escapeHtml(row.draws || 0),
       escapeHtml(formatPercent(row.winRate)),
       escapeHtml(formatSigned(row.totalDelta)),
       escapeHtml(formatSigned(row.averageDelta))
@@ -1211,12 +1314,13 @@ async function loadReport(options = {}) {
   const player = (options.player ?? elements.playerInput.value).trim();
   const provider = "official";
   const queue = options.queue ?? elements.queueFilterSelect.value;
+  const gameLimit = options.gameLimit ?? getSelectedGameLimit();
   const forceRefresh = options.forceRefresh ?? true;
   if (!player) {
     setMessage("Enter a player login first.", "bad");
     return;
   }
-  if (!options.skipDuplicateCheck && isCurrentReportRequest(player, queue)) {
+  if (!options.skipDuplicateCheck && isCurrentReportRequest(player, queue, gameLimit)) {
     const shouldReload = window.confirm(
       `You are already viewing ${currentPayload.player.login} (${displayModeName(queue)}). Load this report again?`
     );
@@ -1226,14 +1330,14 @@ async function loadReport(options = {}) {
     }
   }
 
-  lastRequest = { player, queue };
+  lastRequest = { player, queue, gameLimit };
 
-  setMessage(`Loading ${player} (${displayModeName(queue)})...`, "muted");
+  setMessage(`Loading ${player} (${displayModeName(queue)}, ${gameLimit === "all" ? "all games" : `last ${gameLimit} games`})...`, "muted");
   setLoadingState(true, `Loading report for ${player}...`, 2);
   startLoadPolling();
 
   try {
-    const response = await fetch(`/api/player/${encodeURIComponent(player)}?provider=${encodeURIComponent(provider)}&queue=${encodeURIComponent(queue)}&refresh=${forceRefresh ? "1" : "0"}`);
+    const response = await fetch(`/api/player/${encodeURIComponent(player)}?provider=${encodeURIComponent(provider)}&queue=${encodeURIComponent(queue)}&gameLimit=${encodeURIComponent(gameLimit)}&refresh=${forceRefresh ? "1" : "0"}`);
     const payload = await response.json();
     if (!response.ok) {
       setMessage(payload.error || "Unable to load the player report.", "bad");
@@ -1264,7 +1368,7 @@ async function loadReport(options = {}) {
       return;
     }
       const cacheMessage = payload.providerMeta?.cacheStatus ? ` (${payload.providerMeta.cacheStatus})` : "";
-      setMessage(`Loaded ${payload.player.login} with ${payload.report.overview.totalGames} ${queue === "all" ? "games" : `${displayModeName(queue)} games`}${cacheMessage}.`, "good");
+      setMessage(`Loaded ${payload.player.login} with ${payload.report.overview.totalGames} ${queue === "all" ? "games" : `${displayModeName(queue)} games`} analyzed (${formatGameLimitLabel(gameLimit)})${cacheMessage}.`, "good");
       resetDiscoveryLists(payload.report, { clearSearch: true });
       renderReport(payload);
   } finally {
@@ -1279,24 +1383,34 @@ async function updateReportQueue(queue) {
   }
 
   const player = currentPayload.player?.login || lastRequest?.player || elements.playerInput.value.trim();
+  const previousQueue = getCurrentReportQueue();
+  const previousGameLimit = getCurrentReportGameLimit();
+  const gameLimit = getSelectedGameLimit();
   setMessage(`Switching ${player} to ${displayModeName(queue)}...`, "muted");
 
   try {
-    const response = await fetch(`/api/report/current?queue=${encodeURIComponent(queue)}`);
+    const response = await fetch(`/api/report/current?queue=${encodeURIComponent(queue)}&gameLimit=${encodeURIComponent(gameLimit)}`);
     const payload = await response.json();
     if (!response.ok) {
       setMessage(payload.error || "Unable to switch queue.", "bad");
       return;
     }
-    lastRequest = { player, queue };
+    lastRequest = { player, queue, gameLimit };
     const cacheMessage = payload.providerMeta?.cacheStatus ? ` (${payload.providerMeta.cacheStatus})` : "";
     setMessage(`Updated ${payload.player.login} to ${queue === "all" ? "all games" : displayModeName(queue)} instantly${cacheMessage}.`, "good");
     resetDiscoveryLists(payload.report);
     renderReport(payload);
-    showUpdateToast(
-      "Report data updated",
-      `${payload.player.login} is now showing ${queue === "all" ? "all queues" : displayModeName(queue)}.`
-    );
+    const queueChanged = String(previousQueue || "all") !== String(queue || "all");
+    const gameLimitChanged = String(previousGameLimit || "all") !== String(gameLimit || "all");
+    const toastTitle = gameLimitChanged && queueChanged
+      ? "Report filters updated"
+      : (gameLimitChanged ? "Game count changed" : "Queue changed");
+    const toastText = gameLimitChanged && queueChanged
+      ? `${payload.player.login} is now showing ${queue === "all" ? "all queues" : displayModeName(queue)} from ${formatGameLimitLabel(gameLimit)}.`
+      : (gameLimitChanged
+        ? `${payload.player.login} is now analyzing ${formatGameLimitLabel(gameLimit)}.`
+        : `${payload.player.login} is now showing ${queue === "all" ? "all queues" : displayModeName(queue)}.`);
+    showUpdateToast(toastTitle, toastText);
   } catch (error) {
     setMessage(`Unable to switch queue: ${error.message}`, "bad");
   }
@@ -1306,14 +1420,54 @@ elements.loadButton.addEventListener("click", loadReport);
 elements.updateToastClose?.addEventListener("click", hideUpdateToast);
 elements.queueFilterSelect.addEventListener("change", () => {
   const queue = elements.queueFilterSelect.value;
+  elements.queueFilterSelect.blur();
   if (currentPayload) {
     updateReportQueue(queue);
+  }
+});
+elements.gameLimitSelect.addEventListener("change", () => {
+  syncCustomGameLimitVisibility();
+  elements.gameLimitSelect.blur();
+  if (currentPayload && elements.gameLimitSelect.value !== "custom") {
+    updateReportQueue(elements.queueFilterSelect.value);
+  }
+});
+elements.customGameLimitInput.addEventListener("change", () => {
+  if (currentPayload && elements.gameLimitSelect.value === "custom") {
+    updateReportQueue(elements.queueFilterSelect.value);
   }
 });
 elements.saveAuthConfigButton?.addEventListener("click", saveAuthConfig);
 elements.importRefreshTokenButton?.addEventListener("click", () => importToken("refresh"));
 elements.importAccessTokenButton.addEventListener("click", () => importToken("access"));
 elements.logoutButton.addEventListener("click", logout);
+elements.collapseFiltersButton.addEventListener("click", () => {
+  if (!filtersStuck) {
+    return;
+  }
+  filtersCollapsed = true;
+  syncFilterToolbarVisibility();
+});
+elements.showFiltersButton.addEventListener("click", () => {
+  filtersCollapsed = false;
+  syncFilterToolbarVisibility();
+});
+elements.hideSmallOpponentsButton.addEventListener("click", () => {
+  relationshipState.opponents.minGames = relationshipState.opponents.minGames >= 20 ? 0 : 20;
+  if (currentReport) {
+    renderRelationshipTables(currentReport);
+  }
+});
+elements.hideSmallTeammatesButton.addEventListener("click", () => {
+  relationshipState.teammates.minGames = relationshipState.teammates.minGames >= 20 ? 0 : 20;
+  if (currentReport) {
+    renderRelationshipTables(currentReport);
+  }
+});
+elements.scrollTopButton.addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+window.addEventListener("scroll", syncScrollUi, { passive: true });
 elements.showMoreGamesButton.addEventListener("click", () => {
   gameHistoryState.visibleCount = Math.min(gameHistoryState.visibleCount + gameHistoryState.step, gameHistoryState.filteredGames.length);
   renderGameHistory();
@@ -1408,6 +1562,18 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const insightToggleButton = event.target.closest("[data-insight-toggle]");
+  if (insightToggleButton) {
+    const listId = insightToggleButton.dataset.insightToggle;
+    if (Object.prototype.hasOwnProperty.call(insightExpandedState, listId)) {
+      insightExpandedState[listId] = !insightExpandedState[listId];
+      if (currentReport) {
+        renderImprovement(currentReport);
+      }
+    }
+    return;
+  }
+
   const target = event.target.closest(".th-button");
   if (!target || !currentReport) {
     return;
@@ -1495,6 +1661,9 @@ elements.showMoreTeammatesButton.disabled = true;
 elements.hideMapsButton.hidden = true;
 elements.showMoreMapsButton.hidden = true;
 elements.showMoreMapsButton.disabled = true;
+syncCustomGameLimitVisibility();
+syncFilterToolbarVisibility();
+syncScrollTopButton();
 
 const authFlag = new URLSearchParams(window.location.search).get("auth");
 if (authFlag === "success") {

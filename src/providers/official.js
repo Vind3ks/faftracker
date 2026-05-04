@@ -87,11 +87,19 @@ function isLegacyBrokenOneVsOne(stats) {
 
 function inferOutcomeFromStats(selfStats, stats) {
   const explicit = selfStats.outcome;
+  const teamCount = new Set(stats.map((entry) => entry.team).filter((team) => team != null)).size;
+  const knownOutcomes = stats.map((entry) => entry.outcome).filter((outcome) => outcome && outcome !== "UNKNOWN");
+  if (teamCount >= 2 && knownOutcomes.length >= 2 && knownOutcomes.every((outcome) => outcome === "DEFEAT")) {
+    return "DRAW";
+  }
   if (explicit === "VICTORY") {
     return "WIN";
   }
   if (explicit === "DEFEAT") {
     return "LOSS";
+  }
+  if (explicit === "DRAW") {
+    return "DRAW";
   }
   if (explicit && explicit !== "UNKNOWN") {
     return explicit;
@@ -127,10 +135,79 @@ function inferOutcomeFromStats(selfStats, stats) {
   const topScore = sortedScores[0][1];
   const topTeams = sortedScores.filter((entry) => entry[1] === topScore).map((entry) => entry[0]);
   if (topTeams.length !== 1) {
-    return explicit || "UNKNOWN";
+    return topTeams.length > 1 ? "DRAW" : (explicit || "UNKNOWN");
   }
 
   return topTeams[0] === selfStats.team ? "WIN" : "LOSS";
+}
+
+function inferOutcomeFromRatingDelta(ratingDelta) {
+  if (ratingDelta > 0) {
+    return "WIN";
+  }
+  if (ratingDelta < 0) {
+    return "LOSS";
+  }
+  return null;
+}
+
+function ratingDeltaFromGame(game) {
+  if (Number.isFinite(Number(game?.ratingDelta)) && Number(game.ratingDelta) !== 0) {
+    return Number(game.ratingDelta);
+  }
+  if (!Array.isArray(game?.ratingChanges)) {
+    return 0;
+  }
+  return game.ratingChanges.reduce((sum, entry) => {
+    const delta = Number(entry.delta);
+    return Number.isFinite(delta) ? sum + delta : sum;
+  }, 0);
+}
+
+function meanDeltaFromGame(game) {
+  if (!Array.isArray(game?.ratingChanges)) {
+    return null;
+  }
+  const deltas = game.ratingChanges
+    .map((entry) => {
+      const before = Number(entry.meanBefore);
+      const after = Number(entry.meanAfter);
+      return Number.isFinite(before) && Number.isFinite(after) ? after - before : null;
+    })
+    .filter((delta) => delta != null);
+  if (!deltas.length) {
+    return null;
+  }
+  return deltas.reduce((sum, delta) => sum + delta, 0);
+}
+
+function applyRatingOutcomeOverrides(games) {
+  return (games || []).map((game) => {
+    if (game.playerOutcome === "DRAW" || game.apiPlayerOutcome === "DRAW") {
+      return {
+        ...game,
+        playerOutcome: "DRAW",
+        apiPlayerOutcome: game.apiPlayerOutcome || "DRAW"
+      };
+    }
+    const meanDelta = meanDeltaFromGame(game);
+    if (game.playerOutcome === "LOSS" && meanDelta != null && meanDelta > 0) {
+      return {
+        ...game,
+        apiPlayerOutcome: game.apiPlayerOutcome || game.playerOutcome,
+        playerOutcome: "DRAW"
+      };
+    }
+    const ratingOutcome = inferOutcomeFromRatingDelta(ratingDeltaFromGame(game));
+    if (!ratingOutcome || game.playerOutcome === ratingOutcome) {
+      return game;
+    }
+    return {
+      ...game,
+      apiPlayerOutcome: game.apiPlayerOutcome || game.playerOutcome,
+      playerOutcome: ratingOutcome
+    };
+  });
 }
 
 function normalizeGame(document, playerId) {
@@ -186,6 +263,7 @@ function normalizeGame(document, playerId) {
       return sum + delta;
     }, 0);
     const inferredOutcome = inferOutcomeFromStats(selfStats, stats);
+    const ratingOutcome = inferOutcomeFromRatingDelta(ratingDelta);
 
     const brokenOneVsOne = isLegacyBrokenOneVsOne(stats);
     const teammates = stats
@@ -233,7 +311,8 @@ function normalizeGame(document, playerId) {
       ratingDelta: Number(ratingDelta.toFixed(2)),
       ratingBefore: displayedRating(primaryRatingChange?.meanBefore, primaryRatingChange?.deviationBefore),
       ratingAfter: displayedRating(primaryRatingChange?.meanAfter, primaryRatingChange?.deviationAfter),
-      playerOutcome: inferredOutcome,
+      playerOutcome: inferredOutcome === "DRAW" ? "DRAW" : (ratingOutcome || inferredOutcome),
+      apiPlayerOutcome: inferredOutcome,
       replayId: Number(resource.id),
       replayUrl: attrs.replayUrl || `https://replay.faforever.com/${resource.id}`,
       ratingChanges: selfStats.ratingChanges.map((entry) => ({
@@ -345,11 +424,12 @@ async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
   ]);
 
   const ratings = parseRatings(ratingsDoc);
+  const correctedGames = applyRatingOutcomeOverrides(games);
   onProgress?.({
     stage: "done",
     percent: 100,
-    fetchedGames: games.length,
-    message: `Loaded ${games.length} games. Building report...`
+    fetchedGames: correctedGames.length,
+    message: `Loaded ${correctedGames.length} games. Building report...`
   });
 
   const payload = {
@@ -362,12 +442,12 @@ async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
         ratings.map((entry) => [entry.technicalName, Math.round(entry.rating ?? ((entry.mean || 0) - 3 * (entry.deviation || 0)))])
       )
     },
-    games,
+    games: correctedGames,
     meta: {
       source: "official",
       note: "Live data from the authenticated FAF API.",
       ratings,
-      historyDepth: games.length,
+      historyDepth: correctedGames.length,
       cacheStatus: "live",
       lastFetchedAt: new Date().toISOString()
     }
@@ -436,7 +516,7 @@ function createOfficialProvider() {
         ? {
             fetchedAt: cacheState.payload.fetchedAt,
             player: cacheState.payload.player,
-            games: cacheState.payload.games,
+            games: applyRatingOutcomeOverrides(cacheState.payload.games),
             meta: cacheState.payload.meta
           }
         : null;

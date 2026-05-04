@@ -75,6 +75,46 @@ def blueprint_tech(blueprint):
     return None
 
 
+def blueprint_kind(blueprint):
+    value = str(blueprint or "").lower()
+    if len(value) < 3:
+        return "unknown"
+    if value[2] == "b":
+        return "structure"
+    if value[2] == "l":
+        return "land"
+    if value[2] == "a":
+        return "air"
+    if value[2] == "s":
+        return "naval"
+    return "unit"
+
+
+def blueprint_label(blueprint):
+    value = str(blueprint or "").lower()
+    tech = blueprint_tech(value)
+    kind = blueprint_kind(value)
+    if not value:
+        return "Unknown"
+    if kind == "structure" and tech in ("t2", "t3"):
+        return f"{tech.upper()} structure"
+    if tech:
+        return f"{tech.upper()} {kind}"
+    return kind.title()
+
+
+def blueprint_event(command, tick):
+    blueprint = command.get("blueprint") or ""
+    return {
+        "tick": tick,
+        "second": tick / 10,
+        "blueprint": blueprint,
+        "label": blueprint_label(blueprint),
+        "kind": blueprint_kind(blueprint),
+        "source": command.get("name"),
+    }
+
+
 def parse_faf_header(raw):
     first_newline = raw.find(b"\n")
     if not (0 < first_newline < 128 * 1024):
@@ -166,6 +206,7 @@ def analyze(raw):
         "points": [],
         "bursts": set(),
         "tech": {},
+        "firstUnits": {},
         "status": {},
     })
     command_counts = defaultdict(int)
@@ -214,13 +255,10 @@ def analyze(raw):
             player["effectiveActions"] += 1
 
         tech = blueprint_tech(command.get("blueprint"))
-        if tech and tech not in player["tech"]:
-            player["tech"][tech] = {
-                "tick": tick,
-                "second": tick / 10,
-                "blueprint": command.get("blueprint") or "",
-                "source": command.get("name"),
-            }
+        if tech and command.get("type") == 7 and tech not in player["firstUnits"]:
+            player["firstUnits"][tech] = blueprint_event(command, tick)
+        elif tech and tech not in player["tech"]:
+            player["tech"][tech] = blueprint_event(command, tick)
 
         point = target_point(command)
         if point:
@@ -261,6 +299,7 @@ def analyze(raw):
             "effectiveActions": effective_actions,
             "rawCommands": raw_commands,
             "tech": player["tech"],
+            "firstUnits": player["firstUnits"],
             "status": player["status"],
             "points": player["points"][:5000],
             "buckets": buckets,

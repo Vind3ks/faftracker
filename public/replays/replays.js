@@ -100,23 +100,29 @@ function formatTechTime(entry) {
 
 function statusLabel(status) {
   if (!status?.type) {
-    return "n/a";
+    return "No event";
   }
   const time = formatTechTime(status);
   if (status.type === "left") {
-    return `${time} left`;
+    return `${time}: player left`;
   }
   if (status.type === "ended") {
-    return `${time} ended`;
+    return `${time}: game ended`;
   }
   return `${time} ${status.type}`;
 }
 
-function techBadge(icon, label, entry) {
+function blueprintShort(entry) {
+  return entry?.blueprint ? entry.blueprint.toUpperCase() : "n/a";
+}
+
+function techBadge(icon, label, entry, unitEntry) {
   return `
     <span>
       <strong class="tech-badge"><span class="tech-icon">${escapeHtml(icon)}</span>${escapeHtml(formatTechTime(entry))}</strong>
       ${escapeHtml(label)}
+      <span class="tech-detail">${escapeHtml(entry?.label || "No order")} ${escapeHtml(blueprintShort(entry))}</span>
+      <span class="tech-detail"><span class="tech-icon unit-icon">U</span> ${escapeHtml(formatTechTime(unitEntry))} ${escapeHtml(blueprintShort(unitEntry))}</span>
     </span>
   `;
 }
@@ -148,9 +154,9 @@ function renderTeams(analysis) {
                 <span><strong>${escapeHtml(formatNumber(stats.rawCommands))}</strong>Raw</span>
               </div>
               <div class="tech-stats">
-                ${techBadge("T2", "T2 order", stats.tech?.t2)}
-                ${techBadge("T3", "T3 order", stats.tech?.t3)}
-                ${techBadge("EX", "Exp. order", stats.tech?.experimental)}
+                ${techBadge("T2", "Tech 2", stats.tech?.t2, stats.firstUnits?.t2)}
+                ${techBadge("T3", "Tech 3", stats.tech?.t3, stats.firstUnits?.t3)}
+                ${techBadge("EX", "Experimental", stats.tech?.experimental, stats.firstUnits?.experimental)}
                 ${statusBadge(stats.status)}
               </div>
             </div>

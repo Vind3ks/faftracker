@@ -3,9 +3,11 @@ import io
 import json
 import math
 import sys
+import zlib
 from collections import defaultdict
 
 from fafreplay import Parser, commands, extract_scfa
+import zstd
 
 
 ACTION_COMMANDS = [
@@ -56,25 +58,62 @@ def action_signature(command):
     )
 
 
-def read_replay(raw):
+def parse_faf_header(raw):
+    first_newline = raw.find(b"\n")
+    if not (0 < first_newline < 128 * 1024):
+        return {}, 0
     try:
-        return extract_scfa(io.BytesIO(raw))
+        first_line = raw[:first_newline].decode("utf8").strip()
+        if first_line.startswith("{"):
+            return json.loads(first_line), first_newline + 1
     except Exception:
+        return {}, 0
+    return {}, 0
+
+
+def looks_like_scfa(raw):
+    return raw.startswith(b"Supreme Commander")
+
+
+def looks_like_zstd(raw):
+    return raw.startswith(b"\x28\xb5\x2f\xfd")
+
+
+def read_replay(raw, header, body_offset):
+    if looks_like_scfa(raw):
         return raw
+
+    if header and body_offset:
+        try:
+            return extract_scfa(io.BytesIO(raw))
+        except Exception as error:
+            compression = header.get("compression") or "unknown"
+            body = raw[body_offset:]
+            if compression == "zstd" or looks_like_zstd(body):
+                try:
+                    return zstd.decompress(body)
+                except Exception as zstd_error:
+                    raise RuntimeError(f"Unable to decompress FAF replay zstd body: {zstd_error}") from error
+            if compression == "zlib":
+                try:
+                    return zlib.decompress(body)
+                except Exception as zlib_error:
+                    raise RuntimeError(f"Unable to decompress FAF replay zlib body: {zlib_error}") from error
+            raise RuntimeError(f"Unable to extract FAF replay body ({compression}): {error}") from error
+
+    if looks_like_zstd(raw):
+        try:
+            return zstd.decompress(raw)
+        except Exception as error:
+            raise RuntimeError(f"Replay looks like a raw zstd stream, but decompression failed: {error}") from error
+
+    raise RuntimeError("Replay file is not a recognized .fafreplay or .scfareplay stream.")
 
 
 def analyze(raw):
-    first_newline = raw.find(b"\n")
-    header = {}
-    if 0 < first_newline < 128 * 1024:
-        try:
-            first_line = raw[:first_newline].decode("utf8").strip()
-            if first_line.startswith("{"):
-                header = json.loads(first_line)
-        except Exception:
-            header = {}
+    header, body_offset = parse_faf_header(raw)
 
-    scfa = read_replay(raw)
+    scfa = read_replay(raw, header, body_offset)
     parser = Parser(
         commands=ACTION_COMMANDS,
         save_commands=True,
@@ -131,7 +170,12 @@ def analyze(raw):
     bucket_seconds = max(1, math.ceil(duration_seconds / bucket_count))
 
     players = []
-    for index, name in enumerate(source_players):
+    all_player_names = source_players[:]
+    for name in stats:
+        if name not in all_player_names:
+            all_player_names.append(name)
+
+    for index, name in enumerate(all_player_names):
         player = stats[name]
         effective_actions = player["effectiveActions"]
         raw_commands = player["rawCommands"]

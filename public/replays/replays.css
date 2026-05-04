@@ -407,6 +407,34 @@ a {
   color: var(--warn);
 }
 
+.empty-milestone {
+  padding: 9px 10px;
+  border: 1px solid rgba(151, 175, 198, 0.14);
+  border-radius: 8px;
+  background: rgba(5, 9, 13, 0.18);
+  color: var(--muted);
+}
+
+.detail-toggle {
+  border: 1px solid rgba(151, 175, 198, 0.14);
+  border-radius: 8px;
+  background: rgba(5, 9, 13, 0.18);
+}
+
+.detail-toggle summary {
+  cursor: pointer;
+  padding: 9px 10px;
+  color: var(--accent-2);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.detail-rows {
+  display: grid;
+  gap: 7px;
+  padding: 0 8px 8px;
+}
+
 .replay-stage canvas {
   width: 100%;
   max-height: min(86vh, 1120px);

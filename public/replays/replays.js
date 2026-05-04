@@ -140,27 +140,42 @@ function milestoneDetail(entry, emptyText) {
   return entry?.label || emptyText;
 }
 
-function techBadge(icon, label, entry, unitEntry) {
-  const unitRow = unitEntry?.second === undefined ? "" : `
-    <div class="tech-row">
-      ${blueprintIcon(unitEntry, unitIcon(unitEntry))}
-      <div class="tech-copy">
-        <div class="tech-title">First unit</div>
-        <span class="tech-detail">${escapeHtml(milestoneDetail(unitEntry, "Unit produced"))}</span>
-      </div>
-      <span class="time-pill">${escapeHtml(formatTechTime(unitEntry))}</span>
-    </div>
-  `;
+function eventFallbackIcon(event) {
+  if (event?.iconText) {
+    return event.iconText;
+  }
+  if (event?.type === "acu") {
+    return "ACU";
+  }
+  if (event?.type === "tech") {
+    return "HQ";
+  }
+  return unitIcon(event);
+}
+
+function milestoneRow(event) {
   return `
     <div class="tech-row">
-      ${blueprintIcon(entry, icon)}
+      ${blueprintIcon(event, eventFallbackIcon(event))}
       <div class="tech-copy">
-        <div class="tech-title">${escapeHtml(label)}</div>
-        <span class="tech-detail">${escapeHtml(milestoneDetail(entry, "Not reached"))}</span>
+        <div class="tech-title">${escapeHtml(event?.label || "Milestone")}</div>
+        <span class="tech-detail">${escapeHtml(event?.detail || milestoneDetail(event, "Important replay event"))}</span>
       </div>
-      <span class="time-pill">${escapeHtml(formatTechTime(entry))}</span>
+      <span class="time-pill">${escapeHtml(formatTechTime(event))}</span>
     </div>
-    ${unitRow}
+  `;
+}
+
+function detailRow(event) {
+  return `
+    <div class="tech-row">
+      ${blueprintIcon(event, eventFallbackIcon(event))}
+      <div class="tech-copy">
+        <div class="tech-title">${escapeHtml(event?.label || "Unit")}</div>
+        <span class="tech-detail">${escapeHtml(event?.detail || "First order seen")}</span>
+      </div>
+      <span class="time-pill">${escapeHtml(formatTechTime(event))}</span>
+    </div>
   `;
 }
 
@@ -173,6 +188,28 @@ function statusBadge(status) {
         <span class="tech-detail">${escapeHtml(statusLabel(status))}</span>
       </div>
       <span class="time-pill">${escapeHtml(status?.second === undefined ? "n/a" : formatTechTime(status))}</span>
+    </div>
+  `;
+}
+
+function renderPlayerMilestones(stats) {
+  const milestones = stats.milestones || [];
+  const details = stats.details || [];
+  const defaultRows = milestones.length
+    ? milestones.map(milestoneRow).join("")
+    : `<div class="empty-milestone">No major completed tech, ACU upgrade, nuke, or experimental event detected.</div>`;
+  const detailRows = details.length
+    ? details.map(detailRow).join("")
+    : `<div class="empty-milestone">No detailed build-order data was found.</div>`;
+
+  return `
+    <div class="tech-stats">
+      ${defaultRows}
+      ${statusBadge(stats.status)}
+      <details class="detail-toggle">
+        <summary>Show detailed first orders</summary>
+        <div class="detail-rows">${detailRows}</div>
+      </details>
     </div>
   `;
 }
@@ -194,12 +231,7 @@ function renderTeams(analysis) {
                 <span><strong>${escapeHtml(formatNumber(stats.effectiveActions))}</strong>Actions</span>
                 <span><strong>${escapeHtml(formatNumber(stats.rawCommands))}</strong>Raw</span>
               </div>
-              <div class="tech-stats">
-                ${techBadge("T2", "Tech 2", stats.tech?.t2, stats.firstUnits?.t2)}
-                ${techBadge("T3", "Tech 3", stats.tech?.t3, stats.firstUnits?.t3)}
-                ${techBadge("EX", "Experimental", stats.tech?.experimental, stats.firstUnits?.experimental)}
-                ${statusBadge(stats.status)}
-              </div>
+              ${renderPlayerMilestones(stats)}
             </div>
           `;
         }).join("") || "<p class=\"muted\">No players listed</p>"}</div>

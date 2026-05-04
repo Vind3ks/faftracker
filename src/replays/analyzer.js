@@ -321,6 +321,8 @@ function mergeCommandAnalysis(base, commandAnalysis) {
       rawCommands: player.rawCommands,
       tech: player.tech || {},
       firstUnits: player.firstUnits || {},
+      milestones: player.milestones || [],
+      details: player.details || [],
       status: player.status || {},
       note: commandAnalysis.note
     })),

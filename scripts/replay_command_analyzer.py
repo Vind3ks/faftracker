@@ -21,9 +21,11 @@ ACTION_COMMANDS = [
     commands.EndGame,
     commands.IssueCommand,
     commands.IssueFactoryCommand,
+    commands.LuaSimCallback,
 ]
 
 ICON_CACHE = {}
+BLUEPRINT_CACHE = {}
 
 
 def fetch_text(url):
@@ -39,22 +41,16 @@ def fetch_bytes(url):
 
 
 def strategic_icon_data_url(blueprint):
-    value = str(blueprint or "").lower()
-    if not value:
+    metadata = blueprint_metadata(blueprint)
+    icon_name = metadata.get("strategicIcon")
+    if not icon_name:
         return None
+    value = str(blueprint or "").lower()
     if value in ICON_CACHE:
         return ICON_CACHE[value]
 
     ICON_CACHE[value] = None
-    unit_id = value.upper()
     try:
-        bp_url = f"https://raw.githubusercontent.com/FAForever/fa/deploy/fafdevelop/units/{unit_id}/{unit_id}_unit.bp"
-        bp_text = fetch_text(bp_url)
-        match = re.search(r"StrategicIconName\s*=\s*['\"]([^'\"]+)['\"]", bp_text)
-        if not match:
-            return None
-
-        icon_name = match.group(1)
         icon_url = (
             "https://raw.githubusercontent.com/FAForever/fa/deploy/fafdevelop/"
             f"textures/ui/common/game/strategicicons/{icon_name}_rest.dds"
@@ -70,6 +66,47 @@ def strategic_icon_data_url(blueprint):
         return ICON_CACHE[value]
     except Exception:
         return None
+
+
+def clean_loc(value):
+    text = str(value or "")
+    return re.sub(r"^<LOC [^>]+>", "", text).strip() or text
+
+
+def blueprint_metadata(blueprint):
+    value = str(blueprint or "").lower()
+    if not value:
+        return {}
+    if value in BLUEPRINT_CACHE:
+        return BLUEPRINT_CACHE[value]
+
+    metadata = {
+        "unitName": value.upper(),
+        "strategicIcon": None,
+        "categories": [],
+    }
+    BLUEPRINT_CACHE[value] = metadata
+    unit_id = value.upper()
+    try:
+        bp_url = f"https://raw.githubusercontent.com/FAForever/fa/deploy/fafdevelop/units/{unit_id}/{unit_id}_unit.bp"
+        bp_text = fetch_text(bp_url)
+        icon_match = re.search(r"StrategicIconName\s*=\s*['\"]([^'\"]+)['\"]", bp_text)
+        if icon_match:
+            metadata["strategicIcon"] = icon_match.group(1)
+
+        name_match = re.search(r"UnitName\s*=\s*['\"]([^'\"]+)['\"]", bp_text)
+        if name_match:
+            metadata["unitName"] = clean_loc(name_match.group(1))
+
+        categories_match = re.search(r"Categories\s*=\s*\{(?P<body>.*?)\}", bp_text, flags=re.S)
+        if categories_match:
+            metadata["categories"] = [
+                item.upper()
+                for item in re.findall(r"['\"]([^'\"]+)['\"]", categories_match.group("body"))
+            ]
+    except Exception:
+        pass
+    return metadata
 
 
 def player_sources(header):
@@ -145,10 +182,14 @@ def blueprint_kind(blueprint):
 
 def blueprint_label(blueprint):
     value = str(blueprint or "").lower()
+    metadata = blueprint_metadata(value)
     tech = blueprint_tech(value)
     kind = blueprint_kind(value)
     if not value:
         return "Unknown"
+    unit_name = metadata.get("unitName")
+    if unit_name and unit_name.lower() != value:
+        return unit_name
     if kind == "structure" and tech in ("t2", "t3"):
         return f"{tech.upper()} structure"
     if tech:
@@ -158,15 +199,118 @@ def blueprint_label(blueprint):
 
 def blueprint_event(command, tick):
     blueprint = command.get("blueprint") or ""
+    metadata = blueprint_metadata(blueprint)
     return {
         "tick": tick,
         "second": tick / 10,
         "blueprint": blueprint,
         "label": blueprint_label(blueprint),
         "kind": blueprint_kind(blueprint),
+        "categories": metadata.get("categories", []),
         "iconDataUrl": strategic_icon_data_url(blueprint),
         "source": command.get("name"),
     }
+
+
+def decode_bytes(value):
+    if isinstance(value, bytes):
+        return value.decode("utf8", errors="ignore")
+    if isinstance(value, dict):
+        return {decode_bytes(key): decode_bytes(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [decode_bytes(item) for item in value]
+    return value
+
+
+def tech_source_label(source):
+    value = str(source or "").lower()
+    tech_match = re.search(r"tech([234])", value)
+    tech = f"T{tech_match.group(1)}" if tech_match else "Tech"
+    if "land" in value:
+        branch = "Land"
+    elif "air" in value:
+        branch = "Air"
+    elif "naval" in value or "sea" in value:
+        branch = "Navy"
+    elif "structure" in value:
+        branch = "Structure"
+    else:
+        branch = "HQ"
+    return f"{tech} {branch} HQ completed"
+
+
+def tech_source_key(source):
+    value = str(source or "").lower()
+    tech_match = re.search(r"tech([234])", value)
+    branch = "unknown"
+    for candidate in ("land", "air", "naval", "structure"):
+        if candidate in value:
+            branch = candidate
+            break
+    return f"{tech_match.group(1) if tech_match else 'x'}:{branch}"
+
+
+def callback_milestone(command, tick):
+    args = decode_bytes(command.get("args") or {})
+    msg = args.get("Msg") if isinstance(args, dict) else {}
+    data = msg.get("data") if isinstance(msg, dict) else {}
+    sender = args.get("Sender") if isinstance(args, dict) else None
+    trigger = str(data.get("trigger") or "").lower() if isinstance(data, dict) else ""
+    category = str(data.get("category") or "").lower() if isinstance(data, dict) else ""
+    source = str(data.get("source") or "").lower() if isinstance(data, dict) else ""
+    text = str(msg.get("text") or "") if isinstance(msg, dict) else ""
+
+    if category == "tech" and trigger == "completed":
+        return {
+            "playerName": sender,
+            "key": tech_source_key(source),
+            "type": "tech",
+            "tick": tick,
+            "second": tick / 10,
+            "label": tech_source_label(source),
+            "detail": text or tech_source_label(source),
+            "iconText": "HQ",
+        }
+
+    if trigger == "completed" and ("enhancement" in source or "upgrade" in source or "upgrade" in text.lower()):
+        return {
+            "playerName": sender,
+            "key": f"acu:{source or text.lower()}",
+            "type": "acu",
+            "tick": tick,
+            "second": tick / 10,
+            "label": "ACU upgrade completed",
+            "detail": text or source,
+            "iconText": "ACU",
+        }
+    return None
+
+
+def is_major_blueprint(event):
+    categories = set(event.get("categories") or [])
+    label = str(event.get("label") or "").lower()
+    blueprint = str(event.get("blueprint") or "").lower()
+    return (
+        "EXPERIMENTAL" in categories
+        or blueprint_tech(blueprint) == "experimental"
+        or "NUKE" in categories
+        or "SILO" in categories
+        or "STRATEGIC" in categories
+        or "experimental" in label
+        or "nuke" in label
+    )
+
+
+def major_order_event(command, tick):
+    event = blueprint_event(command, tick)
+    if not event.get("blueprint") or not is_major_blueprint(event):
+        return None
+    event.update({
+        "key": f"major:{event['blueprint'].lower()}",
+        "type": "major-order",
+        "detail": "Major build order seen",
+    })
+    return event
 
 
 def parse_faf_header(raw):
@@ -261,6 +405,10 @@ def analyze(raw):
         "bursts": set(),
         "tech": {},
         "firstUnits": {},
+        "milestones": [],
+        "milestoneKeys": set(),
+        "details": [],
+        "detailKeys": set(),
         "status": {},
     })
     command_counts = defaultdict(int)
@@ -295,6 +443,15 @@ def analyze(raw):
                 "detail": command.get("result") or command.get("reason") or "Game ended",
             }
             continue
+        if name == "LuaSimCallback":
+            milestone = callback_milestone(command, tick)
+            if milestone and milestone.get("playerName") in source_players:
+                player = stats[milestone["playerName"]]
+                key = milestone.get("key")
+                if key not in player["milestoneKeys"]:
+                    player["milestoneKeys"].add(key)
+                    player["milestones"].append(milestone)
+            continue
         if name == "DestroyEntity":
             continue
         if name not in ("IssueCommand", "IssueFactoryCommand"):
@@ -312,6 +469,22 @@ def analyze(raw):
         blueprint = command.get("blueprint")
         tech = blueprint_tech(blueprint)
         kind = blueprint_kind(blueprint)
+        blueprint_key = str(blueprint or "").lower()
+        if blueprint_key and blueprint_key not in player["detailKeys"]:
+            detail = blueprint_event(command, tick)
+            detail.update({
+                "key": f"detail:{blueprint_key}",
+                "type": "first-order",
+                "detail": "First build order seen",
+            })
+            player["detailKeys"].add(blueprint_key)
+            player["details"].append(detail)
+
+        major_order = major_order_event(command, tick) if blueprint_key else None
+        if major_order and major_order["key"] not in player["milestoneKeys"]:
+            player["milestoneKeys"].add(major_order["key"])
+            player["milestones"].append(major_order)
+
         if tech and command.get("type") == 7 and kind != "structure" and tech not in player["firstUnits"]:
             player["firstUnits"][tech] = blueprint_event(command, tick)
         elif tech and (kind == "structure" or tech == "experimental") and tech not in player["tech"]:
@@ -357,6 +530,8 @@ def analyze(raw):
             "rawCommands": raw_commands,
             "tech": player["tech"],
             "firstUnits": player["firstUnits"],
+            "milestones": sorted(player["milestones"], key=lambda event: event.get("second") or 0),
+            "details": sorted(player["details"], key=lambda event: event.get("second") or 0)[:80],
             "status": player["status"],
             "points": player["points"][:5000],
             "buckets": buckets,

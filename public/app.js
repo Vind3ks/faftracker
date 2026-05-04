@@ -23,6 +23,10 @@
   loadingPanel: document.getElementById("loadingPanel"),
   loadingText: document.getElementById("loadingText"),
   loadingPercent: document.getElementById("loadingPercent"),
+  updateToast: document.getElementById("updateToast"),
+  updateToastTitle: document.getElementById("updateToastTitle"),
+  updateToastText: document.getElementById("updateToastText"),
+  updateToastClose: document.getElementById("updateToastClose"),
   oauthDiagnosticsBody: document.getElementById("oauthDiagnosticsBody"),
   overview: document.getElementById("overview"),
   overviewDisclaimer: document.getElementById("overviewDisclaimer"),
@@ -81,6 +85,7 @@ let currentReport = null;
 let currentPayload = null;
 let loadingPoll = null;
 let lastRequest = null;
+let updateToastTimeout = null;
 
 function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 0) {
   elements.loadingPanel.hidden = !isLoading;
@@ -94,6 +99,49 @@ function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 
 function setMessage(text, tone = "muted") {
   elements.message.className = `panel ${tone}`;
   elements.message.textContent = text;
+}
+
+function normalizeReportPlayer(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getCurrentReportQueue() {
+  return currentPayload?.queueFilter || currentReport?.queueFilter || lastRequest?.queue || "all";
+}
+
+function isCurrentReportRequest(player, queue) {
+  if (!currentPayload) {
+    return false;
+  }
+  const requestedPlayer = normalizeReportPlayer(player);
+  const currentLogin = normalizeReportPlayer(currentPayload.player?.login);
+  const currentId = normalizeReportPlayer(currentPayload.player?.id);
+  return Boolean(requestedPlayer)
+    && (requestedPlayer === currentLogin || requestedPlayer === currentId)
+    && String(queue || "all") === String(getCurrentReportQueue() || "all");
+}
+
+function hideUpdateToast() {
+  if (updateToastTimeout) {
+    window.clearTimeout(updateToastTimeout);
+    updateToastTimeout = null;
+  }
+  if (elements.updateToast) {
+    elements.updateToast.hidden = true;
+  }
+}
+
+function showUpdateToast(title, text, timeoutMs = 4200) {
+  if (!elements.updateToast) {
+    return;
+  }
+  elements.updateToastTitle.textContent = title;
+  elements.updateToastText.textContent = text;
+  elements.updateToast.hidden = false;
+  if (updateToastTimeout) {
+    window.clearTimeout(updateToastTimeout);
+  }
+  updateToastTimeout = window.setTimeout(hideUpdateToast, timeoutMs);
 }
 
 function setReportVisible(isVisible) {
@@ -1168,6 +1216,15 @@ async function loadReport(options = {}) {
     setMessage("Enter a player login first.", "bad");
     return;
   }
+  if (!options.skipDuplicateCheck && isCurrentReportRequest(player, queue)) {
+    const shouldReload = window.confirm(
+      `You are already viewing ${currentPayload.player.login} (${displayModeName(queue)}). Load this report again?`
+    );
+    if (!shouldReload) {
+      setMessage("Reload cancelled. The current report is still open.", "muted");
+      return;
+    }
+  }
 
   lastRequest = { player, queue };
 
@@ -1236,12 +1293,17 @@ async function updateReportQueue(queue) {
     setMessage(`Updated ${payload.player.login} to ${queue === "all" ? "all games" : displayModeName(queue)} instantly${cacheMessage}.`, "good");
     resetDiscoveryLists(payload.report);
     renderReport(payload);
+    showUpdateToast(
+      "Report data updated",
+      `${payload.player.login} is now showing ${queue === "all" ? "all queues" : displayModeName(queue)}.`
+    );
   } catch (error) {
     setMessage(`Unable to switch queue: ${error.message}`, "bad");
   }
 }
 
 elements.loadButton.addEventListener("click", loadReport);
+elements.updateToastClose?.addEventListener("click", hideUpdateToast);
 elements.queueFilterSelect.addEventListener("change", () => {
   const queue = elements.queueFilterSelect.value;
   if (currentPayload) {

@@ -4,9 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>FAF Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260504-token-balanced" />
+    <link rel="stylesheet" href="/styles.css?v=20260504-queue-notices" />
   </head>
   <body>
+    <div id="updateToast" class="update-toast" role="status" aria-live="polite" hidden>
+      <div>
+        <strong id="updateToastTitle">Report updated</strong>
+        <p id="updateToastText">The report data has been updated.</p>
+      </div>
+      <button id="updateToastClose" class="toast-close" type="button" aria-label="Dismiss notification">X</button>
+    </div>
+
     <div class="shell">
       <header class="hero">
         <p class="eyebrow">Forged Alliance Forever</p>
@@ -199,6 +207,6 @@
       </section>
     </div>
 
-    <script src="/app.js?v=20260504-token-balanced"></script>
+    <script src="/app.js?v=20260504-queue-notices"></script>
   </body>
   </html>

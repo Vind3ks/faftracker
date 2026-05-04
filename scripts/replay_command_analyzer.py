@@ -161,6 +161,13 @@ def unit_description(metadata):
     return layer
 
 
+def event_unit_name(metadata, blueprint):
+    unit_name = metadata.get("unitName") or str(blueprint or "").upper()
+    if unit_name.lower() == str(blueprint or "").lower() or unit_name.upper() == str(blueprint or "").upper():
+        return unit_description(metadata)
+    return unit_name
+
+
 def player_sources(header):
     teams = header.get("teams") if isinstance(header, dict) else {}
     rows = []
@@ -306,10 +313,8 @@ def tech_source_key(source):
 
 def rich_unit_event(blueprint, tick, event_type, key, source="completed-unit"):
     metadata = blueprint_metadata(blueprint)
-    unit_name = metadata.get("unitName") or str(blueprint or "").upper()
+    unit_name = event_unit_name(metadata, blueprint)
     description = unit_description(metadata)
-    if unit_name.lower() == str(blueprint or "").lower() or unit_name.upper() == str(blueprint or "").upper():
-        unit_name = description
     return {
         "key": key,
         "type": "major-completed",
@@ -405,6 +410,7 @@ def completed_unit_milestones(command, tick, player):
     layer = category_layer(categories)
     entity_id = command.get("entity_id") or command.get("id") or f"{blueprint}:{tick}"
     emitted = []
+    completed_hq_techs = {value.split(":", 1)[0] for value in player["hqTech"]}
 
     def add(event_type, key):
         emitted.append(rich_unit_event(blueprint, tick, event_type, key))
@@ -424,13 +430,20 @@ def completed_unit_milestones(command, tick, player):
         add("Experimental completed", f"unit:{entity_id}:experimental")
     elif "ENERGYPRODUCTION" in categories and tech in ("2", "3") and tech not in player["firstPower"]:
         player["firstPower"].add(tech)
-        add(f"First T{tech} power generator completed", f"first-power:{tech}")
+        add(f"T{tech} power generator completed", f"first-power:{tech}")
     elif "ENGINEER" in categories and tech in ("2", "3") and tech not in player["firstEngineers"]:
         player["firstEngineers"].add(tech)
         add(f"First T{tech} engineer completed", f"first-engineer:{tech}")
-    elif "ENGINEER" not in categories and "STRUCTURE" not in categories and tech in ("2", "3") and tech not in player["firstUnitsFromHq"]:
+    elif (
+        "ENGINEER" not in categories
+        and "STRUCTURE" not in categories
+        and tech in ("2", "3")
+        and tech in completed_hq_techs
+        and tech not in player["firstUnitsFromHq"]
+    ):
         player["firstUnitsFromHq"].add(tech)
-        add(f"First T{tech} unit from HQ completed", f"first-hq-unit:{tech}")
+        description = unit_description(metadata)
+        add(f"{description} completed", f"first-hq-unit:{tech}")
 
     return emitted
 
@@ -580,6 +593,10 @@ def analyze(raw):
                 if key not in player["milestoneKeys"]:
                     player["milestoneKeys"].add(key)
                     player["milestones"].append(milestone)
+                    if milestone.get("eventType", "").startswith("T2 "):
+                        player["hqTech"].add("2:callback")
+                    elif milestone.get("eventType", "").startswith("T3 "):
+                        player["hqTech"].add("3:callback")
             continue
         if name == "CreateUnit":
             source_id = int(command.get("source") or command.get("army") or current_source or 0)

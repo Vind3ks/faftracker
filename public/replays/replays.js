@@ -156,10 +156,7 @@ function eventFallbackIcon(event) {
 function milestoneRow(event) {
   const title = event?.eventType || event?.label || "Milestone";
   const unitName = event?.unitName || event?.label || "";
-  const description = event?.unitDescription || event?.detail || milestoneDetail(event, "Important replay event");
-  const subtitle = unitName && unitName !== title
-    ? `${unitName} · ${description}`
-    : description;
+  const subtitle = unitName || event?.unitDescription || event?.detail || milestoneDetail(event, "Important replay event");
   return `
     <div class="tech-row">
       ${blueprintIcon(event, eventFallbackIcon(event))}

@@ -238,6 +238,9 @@ function renderPlayerMeta(player, providerMeta, report) {
 }
 
 function renderAuthDiagnostics(preview) {
+  if (!elements.oauthDiagnosticsBody) {
+    return;
+  }
   const warning = preview.warning ? `<p class="meta-note">${escapeHtml(preview.warning)}</p>` : "";
   elements.oauthDiagnosticsBody.innerHTML = `
     <div class="meta-grid">
@@ -871,7 +874,7 @@ function renderImprovement(report) {
     {
       title: "1v1 Runbacks You Started Winning",
       body: improvement.opponentsSolved.length
-        ? `${improvement.opponentsSolved.map((entry) => `${entry.name}: earlier ${formatPercent(entry.earlyWinRate)} -> later ${formatPercent(entry.lateWinRate)} across ${entry.recentGames} recent games`).join("<br>")}<br><br>This compares your earlier head-to-head record versus your later head-to-head record to show which repeat opponents you started beating more often.`
+        ? `${improvement.opponentsSolved.map((entry) => `${escapeHtml(entry.name)}: earlier ${escapeHtml(formatPercent(entry.earlyWinRate))} -> later ${escapeHtml(formatPercent(entry.lateWinRate))} across ${escapeHtml(entry.recentGames)} recent games`).join("<br>")}<br><br>This compares your earlier head-to-head record versus your later head-to-head record to show which repeat opponents you started beating more often.`
         : "No strong 1v1 repeat-opponent turnaround yet."
     }
   ];
@@ -1051,15 +1054,15 @@ async function refreshStatus() {
   const preview = await previewResponse.json();
   renderStatus(elements.officialStatus, payload.providers.official);
   renderStatus(elements.sampleStatus, payload.providers.sample);
-  elements.authModeInput.value = auth.config.authMode || "loopback";
-  elements.clientIdInput.value = auth.config.clientId || "";
-  elements.scopesInput.value = auth.config.scopes || "";
-  elements.oauthBaseUrlInput.value = auth.config.oauthBaseUrl || "";
-  elements.oidcDiscoveryUrlInput.value = auth.config.oidcDiscoveryUrl || "";
-  elements.apiBaseUrlInput.value = auth.config.apiBaseUrl || "";
-  elements.userBaseUrlInput.value = auth.config.userBaseUrl || "";
-  elements.appBaseUrlInput.value = auth.config.appBaseUrl || "";
-  elements.redirectUriInput.value = auth.config.redirectUri || auth.callback.redirectUri || "";
+  if (elements.authModeInput) elements.authModeInput.value = auth.config.authMode || "loopback";
+  if (elements.clientIdInput) elements.clientIdInput.value = auth.config.clientId || "";
+  if (elements.scopesInput) elements.scopesInput.value = auth.config.scopes || "";
+  if (elements.oauthBaseUrlInput) elements.oauthBaseUrlInput.value = auth.config.oauthBaseUrl || "";
+  if (elements.oidcDiscoveryUrlInput) elements.oidcDiscoveryUrlInput.value = auth.config.oidcDiscoveryUrl || "";
+  if (elements.apiBaseUrlInput) elements.apiBaseUrlInput.value = auth.config.apiBaseUrl || "";
+  if (elements.userBaseUrlInput) elements.userBaseUrlInput.value = auth.config.userBaseUrl || "";
+  if (elements.appBaseUrlInput) elements.appBaseUrlInput.value = auth.config.appBaseUrl || "";
+  if (elements.redirectUriInput) elements.redirectUriInput.value = auth.config.redirectUri || auth.callback.redirectUri || "";
   elements.authSummary.className = `status-pill ${auth.loggedIn ? "good" : "neutral"}`;
   elements.authSummary.textContent = auth.loggedIn
     ? `Logged in as ${auth.userProfile?.data?.attributes?.userName || auth.userProfile?.userName || auth.userProfile?.username || "FAF user"}`
@@ -1072,7 +1075,7 @@ async function refreshStatus() {
   }
   if (previewResponse.ok) {
     renderAuthDiagnostics(preview);
-  } else {
+  } else if (elements.oauthDiagnosticsBody) {
     elements.oauthDiagnosticsBody.innerHTML = `<p class="empty">${escapeHtml(preview.error || "Unable to build OAuth preview.")}</p>`;
   }
 }
@@ -1100,6 +1103,9 @@ function stopLoadPolling() {
 }
 
 async function saveAuthConfig() {
+  if (!elements.authModeInput) {
+    return;
+  }
   const response = await fetch("/api/auth/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1130,6 +1136,9 @@ async function logout() {
 }
 
 async function importToken(kind) {
+  if (kind === "refresh" && !elements.refreshTokenInput) {
+    return;
+  }
   const body = kind === "refresh"
     ? { refreshToken: elements.refreshTokenInput.value.trim() }
     : { accessToken: elements.accessTokenInput.value.trim() };
@@ -1239,8 +1248,8 @@ elements.queueFilterSelect.addEventListener("change", () => {
     updateReportQueue(queue);
   }
 });
-elements.saveAuthConfigButton.addEventListener("click", saveAuthConfig);
-elements.importRefreshTokenButton.addEventListener("click", () => importToken("refresh"));
+elements.saveAuthConfigButton?.addEventListener("click", saveAuthConfig);
+elements.importRefreshTokenButton?.addEventListener("click", () => importToken("refresh"));
 elements.importAccessTokenButton.addEventListener("click", () => importToken("access"));
 elements.logoutButton.addEventListener("click", logout);
 elements.showMoreGamesButton.addEventListener("click", () => {

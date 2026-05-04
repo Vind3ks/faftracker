@@ -28,9 +28,17 @@ const { createSampleProvider } = require("./src/providers/sample");
 
 const PORT = Number(process.env.PORT || 4173);
 const PUBLIC_DIR = path.join(__dirname, "public");
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 32 * 1024);
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
+const ALLOW_AUTH_CONFIG = process.env.FAF_ALLOW_AUTH_CONFIG === "1";
+const FORCE_HTTPS = process.env.FORCE_HTTPS === "1" || process.env.NODE_ENV === "production";
+const PLAYER_RATE_LIMIT_MAX = Number(process.env.PLAYER_RATE_LIMIT_MAX || 60);
+const PLAYER_RATE_LIMIT_WINDOW_MS = Number(process.env.PLAYER_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 5 * 60 * 1000);
 
 const SESSION_COOKIE = "faf_tracker_session";
 const sessions = new Map();
+const rateLimits = new Map();
 
 function createLoadState() {
   return {
@@ -46,6 +54,91 @@ const providers = {
   official: createOfficialProvider(),
   sample: createSampleProvider()
 };
+
+function isHttps(req) {
+  return req.socket.encrypted || String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+}
+
+function isLocalHost(host) {
+  const hostname = String(host || "").split(":")[0].toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function shouldRedirectToHttps(req) {
+  return FORCE_HTTPS && !isHttps(req) && !isLocalHost(req.headers.host);
+}
+
+function getClientIp(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown")
+    .split(",")[0]
+    .trim();
+}
+
+function checkRateLimit(key, maxRequests, windowMs) {
+  const now = Date.now();
+  const current = rateLimits.get(key);
+  if (!current || current.resetAt <= now) {
+    rateLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return { limited: false, remaining: maxRequests - 1, retryAfterSeconds: 0 };
+  }
+
+  if (current.count >= maxRequests) {
+    return {
+      limited: true,
+      remaining: 0,
+      retryAfterSeconds: Math.ceil((current.resetAt - now) / 1000)
+    };
+  }
+
+  current.count += 1;
+  return {
+    limited: false,
+    remaining: maxRequests - current.count,
+    retryAfterSeconds: Math.ceil((current.resetAt - now) / 1000)
+  };
+}
+
+function logRequest(req, res) {
+  const startedAt = Date.now();
+  const originalWriteHead = res.writeHead;
+
+  res.writeHead = function writeHeadWithStatus(statusCode, ...args) {
+    res.statusCode = statusCode;
+    return originalWriteHead.call(this, statusCode, ...args);
+  };
+
+  res.on("finish", () => {
+    let pathname = req.url || "/";
+    try {
+      pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
+    } catch (error) {}
+
+    console.log(JSON.stringify({
+      level: "info",
+      event: "request",
+      method: req.method,
+      path: pathname,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      ip: getClientIp(req),
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 160)
+    }));
+  });
+}
+
+function applySecurityHeaders(req, res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+  );
+  if (isHttps(req)) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+}
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -70,10 +163,11 @@ function parseCookies(req) {
   return cookies;
 }
 
-function setSessionCookie(res, sessionId) {
+function setSessionCookie(req, res, sessionId) {
+  const secureFlag = isHttps(req) ? "; Secure" : "";
   res.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
+    `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureFlag}`
   );
 }
 
@@ -92,13 +186,28 @@ function createBrowserSession() {
 function getBrowserSession(req, res) {
   const cookies = parseCookies(req);
   let session = cookies[SESSION_COOKIE] ? sessions.get(cookies[SESSION_COOKIE]) : null;
+  if (session && Date.now() - session.touchedAt > SESSION_TTL_MS) {
+    clearSession(session.auth);
+    sessions.delete(session.id);
+    session = null;
+  }
   if (!session) {
     session = createBrowserSession();
     sessions.set(session.id, session);
-    setSessionCookie(res, session.id);
+    setSessionCookie(req, res, session.id);
   }
   session.touchedAt = Date.now();
   return session;
+}
+
+function cleanupExpiredSessions() {
+  const now = Date.now();
+  for (const [id, session] of sessions.entries()) {
+    if (now - session.touchedAt > SESSION_TTL_MS) {
+      clearSession(session.auth);
+      sessions.delete(id);
+    }
+  }
 }
 
 function sendText(res, statusCode, body, contentType = "text/plain; charset=utf-8") {
@@ -147,7 +256,17 @@ function getMimeType(filePath) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let received = 0;
+    req.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > MAX_BODY_BYTES) {
+        const error = new Error("Request body is too large.");
+        error.statusCode = 413;
+        req.destroy(error);
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
@@ -157,6 +276,17 @@ async function handleApi(req, res, url) {
   const browserSession = getBrowserSession(req, res);
   const sessionState = browserSession.auth;
   const loadState = browserSession.load;
+
+  if (req.method === "GET" && url.pathname.startsWith("/api/player/")) {
+    const limit = checkRateLimit(`player:${getClientIp(req)}`, PLAYER_RATE_LIMIT_MAX, PLAYER_RATE_LIMIT_WINDOW_MS);
+    if (limit.limited) {
+      res.setHeader("Retry-After", String(limit.retryAfterSeconds));
+      return sendJson(res, 429, {
+        error: "Too many report loads. Please wait a bit before trying again.",
+        retryAfterSeconds: limit.retryAfterSeconds
+      });
+    }
+  }
 
   if (req.method === "GET" && url.pathname === "/api/auth/callback") {
     if (url.searchParams.get("error")) {
@@ -183,6 +313,20 @@ async function handleApi(req, res, url) {
       res.end();
     }
     return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/health") {
+    return sendJson(res, 200, {
+      ok: true,
+      nodeEnv: process.env.NODE_ENV || "development",
+      forceHttps: FORCE_HTTPS,
+      authConfigEnabled: ALLOW_AUTH_CONFIG,
+      rateLimit: {
+        max: PLAYER_RATE_LIMIT_MAX,
+        windowMs: PLAYER_RATE_LIMIT_WINDOW_MS
+      },
+      sessions: sessions.size
+    });
   }
 
   if (req.method === "GET" && url.pathname === "/api/auth/login") {
@@ -263,6 +407,10 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/import-client") {
+    if (!ALLOW_AUTH_CONFIG) {
+      return sendJson(res, 403, { error: "Local FAF client import is disabled on the public server." });
+    }
+
     try {
       await importClientPrefs(sessionState);
       return sendJson(res, 200, getPublicSessionState(sessionState));
@@ -287,6 +435,9 @@ async function handleApi(req, res, url) {
 
     try {
       if (body.refreshToken) {
+        if (!ALLOW_AUTH_CONFIG) {
+          return sendJson(res, 403, { error: "Refresh token import is disabled on the public server." });
+        }
         await importRefreshToken(sessionState, body.refreshToken);
       } else if (body.accessToken) {
         await importAccessToken(sessionState, body.accessToken);
@@ -305,6 +456,10 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/config") {
+    if (!ALLOW_AUTH_CONFIG) {
+      return sendJson(res, 403, { error: "Runtime FAF auth configuration is disabled on the public server." });
+    }
+
     const raw = await readBody(req);
     let body;
 
@@ -465,6 +620,19 @@ function serveStatic(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
+  logRequest(req, res);
+  applySecurityHeaders(req, res);
+
+  if (shouldRedirectToHttps(req)) {
+    const host = String(req.headers.host || "");
+    if (/^[a-z0-9.-]+(?::\d+)?$/i.test(host)) {
+      res.writeHead(308, { Location: `https://${host}${req.url || "/"}` });
+      res.end();
+      return;
+    }
+    return sendText(res, 400, "Invalid Host header.");
+  }
+
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
@@ -475,8 +643,8 @@ const server = http.createServer(async (req, res) => {
 
     serveStatic(req, res, url);
   } catch (error) {
-    sendJson(res, 500, {
-      error: "Unexpected server error.",
+    sendJson(res, error.statusCode || 500, {
+      error: error.statusCode === 413 ? error.message : "Unexpected server error.",
       detail: error instanceof Error ? error.message : String(error)
     });
   }
@@ -484,4 +652,22 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`FAF Scout is running at http://localhost:${PORT}`);
+});
+
+setInterval(cleanupExpiredSessions, SESSION_CLEANUP_INTERVAL_MS).unref();
+
+process.on("unhandledRejection", (error) => {
+  console.error(JSON.stringify({
+    level: "error",
+    event: "unhandledRejection",
+    message: error instanceof Error ? error.message : String(error)
+  }));
+});
+
+process.on("uncaughtException", (error) => {
+  console.error(JSON.stringify({
+    level: "error",
+    event: "uncaughtException",
+    message: error instanceof Error ? error.message : String(error)
+  }));
 });

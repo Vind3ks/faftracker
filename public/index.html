@@ -80,66 +80,6 @@
           </div>
         </section>
 
-        <details class="session-box">
-          <summary>Advanced FAF OAuth settings</summary>
-          <p>
-            The defaults are prefilled from the current FAF client stack. Change these only if FAF
-            gives us a dedicated OAuth client or alternate endpoints later.
-          </p>
-          <div class="advanced-grid">
-            <label class="field">
-              <span>Auth mode</span>
-              <select id="authModeInput">
-                <option value="loopback">Loopback localhost</option>
-                <option value="app">Public app callback</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>OAuth client ID</span>
-              <input id="clientIdInput" type="text" />
-            </label>
-            <label class="field">
-              <span>Scopes</span>
-              <input id="scopesInput" type="text" />
-            </label>
-            <label class="field">
-              <span>OAuth base URL</span>
-              <input id="oauthBaseUrlInput" type="text" />
-            </label>
-            <label class="field">
-              <span>OIDC discovery URL</span>
-              <input id="oidcDiscoveryUrlInput" type="text" />
-            </label>
-            <label class="field">
-              <span>API base URL</span>
-              <input id="apiBaseUrlInput" type="text" />
-            </label>
-            <label class="field">
-              <span>User base URL</span>
-              <input id="userBaseUrlInput" type="text" />
-            </label>
-            <label class="field">
-              <span>App base URL</span>
-              <input id="appBaseUrlInput" type="text" />
-            </label>
-            <label class="field">
-              <span>Redirect URI</span>
-              <input id="redirectUriInput" type="text" />
-            </label>
-            <label class="field wide">
-              <span>Manual refresh token</span>
-              <textarea id="refreshTokenInput" rows="3" placeholder="Paste a FAF refresh token here if you want to import it directly"></textarea>
-            </label>
-          </div>
-          <div class="advanced-actions">
-            <button id="saveAuthConfigButton" class="secondary">Save auth settings</button>
-            <button id="importRefreshTokenButton" class="secondary">Import refresh token</button>
-          </div>
-          <div class="panel" id="oauthDiagnostics">
-            <p class="panel-label">OAuth Diagnostics</p>
-            <div id="oauthDiagnosticsBody" class="meta-card"></div>
-          </div>
-        </details>
       </section>
 
       <section class="panel" hidden>

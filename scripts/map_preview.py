@@ -50,20 +50,6 @@ def read_preview(map_name):
         scenario_name = next((name for name in names if name.lower().endswith("_scenario.lua")), None)
         candidates = []
 
-        for name in png_names:
-            try:
-                image = Image.open(io.BytesIO(archive.read(name))).convert("RGBA")
-                candidates.append((3, image.width * image.height, name, image))
-            except Exception:
-                pass
-
-        for name in [name for name in names if name.lower().endswith(".dds")]:
-            try:
-                image = Image.open(io.BytesIO(archive.read(name))).convert("RGBA")
-                candidates.append((2, image.width * image.height, name, image))
-            except Exception:
-                pass
-
         if not candidates and not scmap_name:
             raise RuntimeError("Map zip does not contain a supported visual preview.")
 
@@ -81,13 +67,30 @@ def read_preview(map_name):
                     try:
                         dds_image = Image.open(io.BytesIO(scmap[dds_offset:])).convert("RGBA")
                         source_name = f"{scmap_name} embedded DDS {index}"
-                        candidates.append((1, dds_image.width * dds_image.height, source_name, dds_image))
+                        # The first embedded DDS is the clean terrain texture on standard FAF maps.
+                        # PNG previews often contain mex/start-position overlays baked into the image.
+                        priority = 5 if index == 0 else 1
+                        candidates.append((priority, dds_image.width * dds_image.height, source_name, dds_image))
                     except Exception:
                         pass
                     index += 1
                     start = dds_offset + 1
             except Exception as error:
                 scmap_note = str(error)
+
+        for name in [name for name in names if name.lower().endswith(".dds")]:
+            try:
+                image = Image.open(io.BytesIO(archive.read(name))).convert("RGBA")
+                candidates.append((3, image.width * image.height, name, image))
+            except Exception:
+                pass
+
+        for name in png_names:
+            try:
+                image = Image.open(io.BytesIO(archive.read(name))).convert("RGBA")
+                candidates.append((2, image.width * image.height, name, image))
+            except Exception:
+                pass
 
         if not candidates:
             raise RuntimeError(scmap_note or "Map zip does not contain a supported visual preview.")

@@ -207,18 +207,6 @@ function drawHeatmap(playheadSecond = 0) {
       context.fillStyle = "rgba(255,255,255,0.035)";
       context.fillRect(plotX, plotY, plotW, plotH);
     }
-    context.strokeStyle = "rgba(237, 246, 251, 0.07)";
-    for (let i = 0; i <= 10; i += 1) {
-      const x = plotX + (plotW / 10) * i;
-      const y = plotY + (plotH / 10) * i;
-      context.beginPath();
-      context.moveTo(x, plotY);
-      context.lineTo(x, plotY + plotH);
-      context.moveTo(plotX, y);
-      context.lineTo(plotX + plotW, y);
-      context.stroke();
-    }
-
     players.forEach((player, playerIndex) => {
       const color = playerColor(playerIndex, players.length);
       const points = pointsByPlayer[player.name] || [];

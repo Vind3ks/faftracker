@@ -116,23 +116,57 @@ function blueprintShort(entry) {
   return entry?.blueprint ? entry.blueprint.toUpperCase() : "n/a";
 }
 
+function unitIcon(entry) {
+  const kind = entry?.kind || "";
+  if (kind === "structure") {
+    return "HQ";
+  }
+  if (kind === "air") {
+    return "AIR";
+  }
+  if (kind === "naval") {
+    return "SEA";
+  }
+  if (kind === "land") {
+    return "BOT";
+  }
+  return "U";
+}
+
 function techBadge(icon, label, entry, unitEntry) {
+  const unitRow = unitEntry?.second === undefined ? "" : `
+    <div class="tech-row">
+      <span class="tech-icon unit-icon">${escapeHtml(unitIcon(unitEntry))}</span>
+      <div class="tech-copy">
+        <div class="tech-title">First unit</div>
+        <span class="tech-detail">${escapeHtml(unitEntry.label || "Unit")} ${escapeHtml(blueprintShort(unitEntry))}</span>
+      </div>
+      <span class="time-pill">${escapeHtml(formatTechTime(unitEntry))}</span>
+    </div>
+  `;
   return `
-    <span>
-      <strong class="tech-badge"><span class="tech-icon">${escapeHtml(icon)}</span>${escapeHtml(formatTechTime(entry))}</strong>
-      ${escapeHtml(label)}
-      <span class="tech-detail">${escapeHtml(entry?.label || "No order")} ${escapeHtml(blueprintShort(entry))}</span>
-      <span class="tech-detail"><span class="tech-icon unit-icon">U</span> ${escapeHtml(formatTechTime(unitEntry))} ${escapeHtml(blueprintShort(unitEntry))}</span>
-    </span>
+    <div class="tech-row">
+      <span class="tech-icon">${escapeHtml(icon)}</span>
+      <div class="tech-copy">
+        <div class="tech-title">${escapeHtml(label)}</div>
+        <span class="tech-detail">${escapeHtml(entry?.label || "No order")} ${escapeHtml(blueprintShort(entry))}</span>
+      </div>
+      <span class="time-pill">${escapeHtml(formatTechTime(entry))}</span>
+    </div>
+    ${unitRow}
   `;
 }
 
 function statusBadge(status) {
   return `
-    <span>
-      <strong class="tech-badge"><span class="tech-icon status-icon">X</span>${escapeHtml(statusLabel(status))}</strong>
-      Status
-    </span>
+    <div class="tech-row">
+      <span class="tech-icon status-icon">X</span>
+      <div class="tech-copy">
+        <div class="tech-title">Status</div>
+        <span class="tech-detail">${escapeHtml(status?.detail || "No clear death event in command stream")}</span>
+      </div>
+      <span class="time-pill">${escapeHtml(status?.second === undefined ? "n/a" : formatTechTime(status))}</span>
+    </div>
   `;
 }
 

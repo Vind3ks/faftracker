@@ -100,20 +100,16 @@ function formatTechTime(entry) {
 
 function statusLabel(status) {
   if (!status?.type) {
-    return "No event";
+    return "No death or exit found";
   }
   const time = formatTechTime(status);
   if (status.type === "left") {
-    return `${time}: player left`;
+    return `${time}: player disconnected or left`;
   }
   if (status.type === "ended") {
     return `${time}: game ended`;
   }
-  return `${time} ${status.type}`;
-}
-
-function blueprintShort(entry) {
-  return entry?.blueprint ? entry.blueprint.toUpperCase() : "n/a";
+  return `${time}: replay event recorded`;
 }
 
 function unitIcon(entry) {
@@ -133,23 +129,34 @@ function unitIcon(entry) {
   return "U";
 }
 
+function blueprintIcon(entry, fallback) {
+  if (entry?.iconDataUrl) {
+    return `<img class="blueprint-icon" src="${entry.iconDataUrl}" alt="" loading="lazy">`;
+  }
+  return `<span class="tech-icon">${escapeHtml(fallback)}</span>`;
+}
+
+function milestoneDetail(entry, emptyText) {
+  return entry?.label || emptyText;
+}
+
 function techBadge(icon, label, entry, unitEntry) {
   const unitRow = unitEntry?.second === undefined ? "" : `
     <div class="tech-row">
-      <span class="tech-icon unit-icon">${escapeHtml(unitIcon(unitEntry))}</span>
+      ${blueprintIcon(unitEntry, unitIcon(unitEntry))}
       <div class="tech-copy">
         <div class="tech-title">First unit</div>
-        <span class="tech-detail">${escapeHtml(unitEntry.label || "Unit")} ${escapeHtml(blueprintShort(unitEntry))}</span>
+        <span class="tech-detail">${escapeHtml(milestoneDetail(unitEntry, "Unit produced"))}</span>
       </div>
       <span class="time-pill">${escapeHtml(formatTechTime(unitEntry))}</span>
     </div>
   `;
   return `
     <div class="tech-row">
-      <span class="tech-icon">${escapeHtml(icon)}</span>
+      ${blueprintIcon(entry, icon)}
       <div class="tech-copy">
         <div class="tech-title">${escapeHtml(label)}</div>
-        <span class="tech-detail">${escapeHtml(entry?.label || "No order")} ${escapeHtml(blueprintShort(entry))}</span>
+        <span class="tech-detail">${escapeHtml(milestoneDetail(entry, "Not reached"))}</span>
       </div>
       <span class="time-pill">${escapeHtml(formatTechTime(entry))}</span>
     </div>
@@ -163,7 +170,7 @@ function statusBadge(status) {
       <span class="tech-icon status-icon">X</span>
       <div class="tech-copy">
         <div class="tech-title">Status</div>
-        <span class="tech-detail">${escapeHtml(status?.detail || "No clear death event in command stream")}</span>
+        <span class="tech-detail">${escapeHtml(statusLabel(status))}</span>
       </div>
       <span class="time-pill">${escapeHtml(status?.second === undefined ? "n/a" : formatTechTime(status))}</span>
     </div>

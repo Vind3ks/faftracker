@@ -358,6 +358,17 @@ a {
   color: var(--accent-2);
 }
 
+.blueprint-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+  padding: 3px;
+  border: 1px solid rgba(151, 175, 198, 0.22);
+  border-radius: 6px;
+  background: rgba(5, 9, 13, 0.55);
+  object-fit: contain;
+}
+
 .tech-copy {
   min-width: 0;
 }

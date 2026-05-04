@@ -2,7 +2,9 @@ import base64
 import io
 import json
 import math
+import re
 import sys
+import urllib.request
 import zlib
 from collections import defaultdict
 
@@ -20,6 +22,54 @@ ACTION_COMMANDS = [
     commands.IssueCommand,
     commands.IssueFactoryCommand,
 ]
+
+ICON_CACHE = {}
+
+
+def fetch_text(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "faftracker-replay-tool/0.1"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return response.read().decode("utf8", errors="ignore")
+
+
+def fetch_bytes(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "faftracker-replay-tool/0.1"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return response.read()
+
+
+def strategic_icon_data_url(blueprint):
+    value = str(blueprint or "").lower()
+    if not value:
+        return None
+    if value in ICON_CACHE:
+        return ICON_CACHE[value]
+
+    ICON_CACHE[value] = None
+    unit_id = value.upper()
+    try:
+        bp_url = f"https://raw.githubusercontent.com/FAForever/fa/deploy/fafdevelop/units/{unit_id}/{unit_id}_unit.bp"
+        bp_text = fetch_text(bp_url)
+        match = re.search(r"StrategicIconName\s*=\s*['\"]([^'\"]+)['\"]", bp_text)
+        if not match:
+            return None
+
+        icon_name = match.group(1)
+        icon_url = (
+            "https://raw.githubusercontent.com/FAForever/fa/deploy/fafdevelop/"
+            f"textures/ui/common/game/strategicicons/{icon_name}_rest.dds"
+        )
+        from PIL import Image
+
+        icon_bytes = fetch_bytes(icon_url)
+        image = Image.open(io.BytesIO(icon_bytes)).convert("RGBA")
+        image = image.resize((32, 32), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        ICON_CACHE[value] = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+        return ICON_CACHE[value]
+    except Exception:
+        return None
 
 
 def player_sources(header):
@@ -66,11 +116,14 @@ def blueprint_tech(blueprint):
     value = str(blueprint or "").lower()
     if len(value) < 4:
         return None
-    if value[3] == "2":
+    tech_index = 3 if blueprint_kind(value) == "structure" else 4
+    if len(value) <= tech_index:
+        return None
+    if value[tech_index] == "2":
         return "t2"
-    if value[3] == "3":
+    if value[tech_index] == "3":
         return "t3"
-    if value[3] == "4":
+    if value[tech_index] == "4":
         return "experimental"
     return None
 
@@ -111,6 +164,7 @@ def blueprint_event(command, tick):
         "blueprint": blueprint,
         "label": blueprint_label(blueprint),
         "kind": blueprint_kind(blueprint),
+        "iconDataUrl": strategic_icon_data_url(blueprint),
         "source": command.get("name"),
     }
 
@@ -223,13 +277,14 @@ def analyze(raw):
             continue
         if name == "CommandSourceTerminated":
             source_id = int(command.get("id") or current_source or 0)
-            player_name = source_players[source_id] if source_id < len(source_players) else f"Source {source_id}"
-            source_status[player_name] = {
-                "type": "left",
-                "tick": tick,
-                "second": tick / 10,
-                "detail": "Command source terminated",
-            }
+            if source_id < len(source_players):
+                player_name = source_players[source_id]
+                source_status[player_name] = {
+                    "type": "left",
+                    "tick": tick,
+                    "second": tick / 10,
+                    "detail": "Player connection ended",
+                }
             continue
         if name == "EndGame":
             player_name = source_players[current_source] if current_source < len(source_players) else f"Source {current_source}"
@@ -254,10 +309,12 @@ def analyze(raw):
             player["bursts"].add(signature)
             player["effectiveActions"] += 1
 
-        tech = blueprint_tech(command.get("blueprint"))
-        if tech and command.get("type") == 7 and tech not in player["firstUnits"]:
+        blueprint = command.get("blueprint")
+        tech = blueprint_tech(blueprint)
+        kind = blueprint_kind(blueprint)
+        if tech and command.get("type") == 7 and kind != "structure" and tech not in player["firstUnits"]:
             player["firstUnits"][tech] = blueprint_event(command, tick)
-        elif tech and tech not in player["tech"]:
+        elif tech and (kind == "structure" or tech == "experimental") and tech not in player["tech"]:
             player["tech"][tech] = blueprint_event(command, tick)
 
         point = target_point(command)

@@ -168,6 +168,14 @@ function runCommandParser(buffer) {
     || (process.platform === "win32" && fs.existsSync(bundledPython) ? bundledPython : null)
     || (process.platform === "win32" ? "python" : "python3");
   const scriptPath = path.join(__dirname, "..", "..", "scripts", "replay_command_analyzer.py");
+  const diagnostics = {
+    python,
+    scriptPath,
+    scriptExists: fs.existsSync(scriptPath),
+    bundledPython,
+    bundledPythonExists: fs.existsSync(bundledPython),
+    cwd: process.cwd()
+  };
   const result = spawnSync(python, [scriptPath], {
     input: JSON.stringify({ replayBase64: buffer.toString("base64") }),
     encoding: "utf8",
@@ -178,35 +186,68 @@ function runCommandParser(buffer) {
   if (result.error) {
     return {
       available: false,
-      error: result.error.message
+      error: result.error.message,
+      diagnostics
     };
   }
 
   if (result.status !== 0) {
     return {
       available: false,
-      error: (result.stderr || result.stdout || "Replay parser failed.").trim().slice(0, 500)
+      error: (result.stderr || result.stdout || "Replay parser failed.").trim().slice(0, 1200),
+      diagnostics: {
+        ...diagnostics,
+        status: result.status,
+        signal: result.signal,
+        stderr: (result.stderr || "").trim().slice(0, 1200),
+        stdout: (result.stdout || "").trim().slice(0, 1200)
+      }
     };
   }
 
   try {
-    return JSON.parse(result.stdout);
+    const parsed = JSON.parse(result.stdout);
+    return {
+      ...parsed,
+      diagnostics: {
+        ...diagnostics,
+        status: result.status
+      }
+    };
   } catch (error) {
     return {
       available: false,
-      error: "Replay parser returned invalid JSON."
+      error: "Replay parser returned invalid JSON.",
+      diagnostics: {
+        ...diagnostics,
+        status: result.status,
+        stdout: (result.stdout || "").trim().slice(0, 1200),
+        stderr: (result.stderr || "").trim().slice(0, 1200)
+      }
     };
   }
 }
 
 function mergeCommandAnalysis(base, commandAnalysis) {
   if (!commandAnalysis?.available) {
+    const parserError = commandAnalysis?.error || "Replay command parser did not return command data.";
+    const parserNote = `Replay command parser unavailable: ${parserError}`;
     return {
       ...base,
+      apm: base.apm.map((player) => ({
+        ...player,
+        note: parserNote
+      })),
+      heatmap: {
+        ...base.heatmap,
+        note: parserNote
+      },
       parser: {
         ...base.parser,
         available: false,
-        error: commandAnalysis?.error || null
+        note: parserNote,
+        error: parserError,
+        diagnostics: commandAnalysis?.diagnostics || null
       }
     };
   }
@@ -252,6 +293,7 @@ function mergeCommandAnalysis(base, commandAnalysis) {
       available: true,
       quality: "commands",
       commandCounts: commandAnalysis.commandCounts || {},
+      diagnostics: commandAnalysis.diagnostics || null,
       note: commandAnalysis.note
     }
   };

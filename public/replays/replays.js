@@ -4,6 +4,7 @@ const elements = {
   loadReplayButton: document.getElementById("loadReplayButton"),
   fileName: document.getElementById("fileName"),
   message: document.getElementById("message"),
+  parserStatus: document.getElementById("parserStatus"),
   summary: document.getElementById("summary"),
   teamsPanel: document.getElementById("teamsPanel"),
   teams: document.getElementById("teams"),
@@ -268,8 +269,29 @@ function renderApm(analysis) {
   elements.apmPanel.hidden = false;
 }
 
+function renderParserStatus(analysis) {
+  const parser = analysis.parser || {};
+  const diagnostics = parser.diagnostics || {};
+  const status = parser.available ? "Active" : "Unavailable";
+  const quality = parser.quality || "unknown";
+  const commandCounts = parser.commandCounts
+    ? Object.entries(parser.commandCounts).map(([name, count]) => `${name}: ${count}`).join(", ")
+    : "";
+  elements.parserStatus.innerHTML = `
+    <strong>Parser ${escapeHtml(status)} (${escapeHtml(quality)})</strong>
+    <div>${escapeHtml(parser.note || parser.error || "No parser detail returned.")}</div>
+    ${parser.error ? `<div><strong>Error:</strong> ${escapeHtml(parser.error)}</div>` : ""}
+    ${diagnostics.python ? `<div><strong>Python:</strong> <code>${escapeHtml(diagnostics.python)}</code></div>` : ""}
+    ${diagnostics.scriptPath ? `<div><strong>Adapter:</strong> <code>${escapeHtml(diagnostics.scriptPath)}</code> (${diagnostics.scriptExists ? "found" : "missing"})</div>` : ""}
+    ${commandCounts ? `<div><strong>Commands:</strong> ${escapeHtml(commandCounts)}</div>` : ""}
+  `;
+  elements.parserStatus.className = `panel parser-status ${parser.available ? "good" : "bad"}`;
+  elements.parserStatus.hidden = false;
+}
+
 function renderAnalysis(analysis) {
   currentAnalysis = analysis;
+  renderParserStatus(analysis);
   renderSummary(analysis);
   renderTeams(analysis.teams);
   renderHeatmap(analysis);

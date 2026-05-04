@@ -23,6 +23,8 @@ let playbackSecond = 0;
 let lastFrameTime = 0;
 let mapImage = null;
 let mapImageSource = "";
+let canvasCssWidth = 0;
+let canvasCssHeight = 0;
 
 function setMessage(text, tone = "muted") {
   elements.message.className = `panel ${tone}`;
@@ -134,6 +136,22 @@ function loadMapImage(analysis) {
   mapImage.src = source;
 }
 
+function syncCanvasResolution(canvas, context) {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const targetWidth = Math.max(1, Math.round(rect.width * ratio));
+  const targetHeight = Math.max(1, Math.round(rect.height * ratio));
+  canvasCssWidth = rect.width || canvas.width;
+  canvasCssHeight = rect.height || canvas.height;
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+  }
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.imageSmoothingEnabled = false;
+  return { width: canvasCssWidth, height: canvasCssHeight };
+}
+
 function drawHeatmap(playheadSecond = 0) {
   const canvas = elements.heatmapCanvas;
   const context = canvas.getContext("2d");
@@ -142,8 +160,7 @@ function drawHeatmap(playheadSecond = 0) {
     return;
   }
 
-  const width = canvas.width;
-  const height = canvas.height;
+  const { width, height } = syncCanvasResolution(canvas, context);
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#05090d";
   context.fillRect(0, 0, width, height);
@@ -151,10 +168,10 @@ function drawHeatmap(playheadSecond = 0) {
   const timeline = analysis.heatmap.timeline || [];
   const players = analysis.apm || [];
   const pointsByPlayer = analysis.heatmap.points || {};
-  const plotX = 18;
-  const plotY = 18;
-  const plotW = width - 36;
-  const plotH = height - 52;
+  const plotX = 8;
+  const plotY = 8;
+  const plotW = width - 16;
+  const plotH = height - 34;
 
   if (!players.length) {
     context.fillStyle = "#9dafbf";
@@ -183,13 +200,13 @@ function drawHeatmap(playheadSecond = 0) {
   if (hasMapPoints || mapImage) {
     if (mapImage) {
       context.drawImage(mapImage, plotX, plotY, plotW, plotH);
-      context.fillStyle = "rgba(5, 9, 13, 0.22)";
+      context.fillStyle = "rgba(5, 9, 13, 0.05)";
       context.fillRect(plotX, plotY, plotW, plotH);
     } else {
       context.fillStyle = "rgba(255,255,255,0.035)";
       context.fillRect(plotX, plotY, plotW, plotH);
     }
-    context.strokeStyle = "rgba(237, 246, 251, 0.16)";
+    context.strokeStyle = "rgba(237, 246, 251, 0.07)";
     for (let i = 0; i <= 10; i += 1) {
       const x = plotX + (plotW / 10) * i;
       const y = plotY + (plotH / 10) * i;
@@ -214,22 +231,22 @@ function drawHeatmap(playheadSecond = 0) {
         }
         const x = plotX + ((point.x - mapBounds.minX) / (mapBounds.maxX - mapBounds.minX)) * plotW;
         const y = plotY + ((point.z - mapBounds.minZ) / (mapBounds.maxZ - mapBounds.minZ)) * plotH;
-        const alpha = Math.max(0.08, 1 - age / Math.max(18, analysis.heatmap.bucketSeconds * 3));
+        const alpha = Math.max(0.12, 1 - age / Math.max(14, analysis.heatmap.bucketSeconds * 2.4));
         context.globalAlpha = alpha;
         context.fillStyle = color;
         context.beginPath();
-        context.arc(x, y, 5 + alpha * 10, 0, Math.PI * 2);
+        context.arc(x, y, 2.5 + alpha * 4.5, 0, Math.PI * 2);
         context.fill();
-        context.strokeStyle = "rgba(255,255,255,0.72)";
+        context.strokeStyle = "rgba(255,255,255,0.62)";
         context.lineWidth = 1;
         context.stroke();
       }
       context.globalAlpha = 1;
       context.fillStyle = color;
-      context.font = "15px Segoe UI";
-      context.fillRect(plotX + 12, plotY + 12 + playerIndex * 24, 12, 12);
+      context.font = "13px Segoe UI";
+      context.fillRect(plotX + 10, plotY + 10 + playerIndex * 20, 10, 10);
       context.fillStyle = "#edf6fb";
-      context.fillText(player.name, plotX + 32, plotY + 24 + playerIndex * 24);
+      context.fillText(player.name, plotX + 28, plotY + 20 + playerIndex * 20);
     });
   } else {
     const laneH = plotH / players.length;
@@ -393,3 +410,8 @@ elements.timeSlider.addEventListener("input", () => {
   setFrame(elements.timeSlider.value);
 });
 elements.playButton.addEventListener("click", togglePlayback);
+window.addEventListener("resize", () => {
+  if (currentAnalysis) {
+    drawHeatmap(playbackSecond);
+  }
+});

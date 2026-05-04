@@ -140,6 +140,10 @@ a {
   margin-bottom: 18px;
 }
 
+.replay-stage {
+  padding: 10px 10px 14px;
+}
+
 .muted {
   color: var(--muted);
   background: var(--panel-soft);
@@ -317,13 +321,15 @@ a {
 
 .replay-stage canvas {
   width: 100%;
-  max-height: min(78vh, 980px);
+  max-height: min(86vh, 1120px);
   aspect-ratio: 1 / 1;
   height: auto;
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #05090d;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .note {

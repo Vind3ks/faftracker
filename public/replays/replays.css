@@ -321,7 +321,7 @@ a {
 
 .tech-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding-top: 2px;
   color: var(--muted);
@@ -333,6 +333,30 @@ a {
   display: block;
   color: var(--accent);
   font-size: 0.95rem;
+}
+
+.tech-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tech-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(112, 224, 199, 0.14);
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.status-icon {
+  background: rgba(255, 176, 107, 0.16);
+  color: var(--warn);
 }
 
 .replay-stage canvas {

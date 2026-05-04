@@ -320,6 +320,7 @@ function mergeCommandAnalysis(base, commandAnalysis) {
       effectiveActions: player.effectiveActions,
       rawCommands: player.rawCommands,
       tech: player.tech || {},
+      status: player.status || {},
       note: commandAnalysis.note
     })),
     heatmap: {

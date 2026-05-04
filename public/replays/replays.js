@@ -98,6 +98,38 @@ function formatTechTime(entry) {
   return entry?.second === undefined ? "n/a" : formatTime(entry.second);
 }
 
+function statusLabel(status) {
+  if (!status?.type) {
+    return "n/a";
+  }
+  const time = formatTechTime(status);
+  if (status.type === "left") {
+    return `${time} left`;
+  }
+  if (status.type === "ended") {
+    return `${time} ended`;
+  }
+  return `${time} ${status.type}`;
+}
+
+function techBadge(icon, label, entry) {
+  return `
+    <span>
+      <strong class="tech-badge"><span class="tech-icon">${escapeHtml(icon)}</span>${escapeHtml(formatTechTime(entry))}</strong>
+      ${escapeHtml(label)}
+    </span>
+  `;
+}
+
+function statusBadge(status) {
+  return `
+    <span>
+      <strong class="tech-badge"><span class="tech-icon status-icon">X</span>${escapeHtml(statusLabel(status))}</strong>
+      Status
+    </span>
+  `;
+}
+
 function renderTeams(analysis) {
   const teams = analysis.teams || [];
   const apmByPlayer = statsByPlayer(analysis);
@@ -116,9 +148,10 @@ function renderTeams(analysis) {
                 <span><strong>${escapeHtml(formatNumber(stats.rawCommands))}</strong>Raw</span>
               </div>
               <div class="tech-stats">
-                <span><strong>${escapeHtml(formatTechTime(stats.tech?.t2))}</strong>T2 order</span>
-                <span><strong>${escapeHtml(formatTechTime(stats.tech?.t3))}</strong>T3 order</span>
-                <span><strong>${escapeHtml(formatTechTime(stats.tech?.experimental))}</strong>Exp. order</span>
+                ${techBadge("T2", "T2 order", stats.tech?.t2)}
+                ${techBadge("T3", "T3 order", stats.tech?.t3)}
+                ${techBadge("EX", "Exp. order", stats.tech?.experimental)}
+                ${statusBadge(stats.status)}
               </div>
             </div>
           `;

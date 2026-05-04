@@ -14,6 +14,9 @@ import zstandard
 ACTION_COMMANDS = [
     commands.Advance,
     commands.SetCommandSource,
+    commands.CommandSourceTerminated,
+    commands.DestroyEntity,
+    commands.EndGame,
     commands.IssueCommand,
     commands.IssueFactoryCommand,
 ]
@@ -163,8 +166,10 @@ def analyze(raw):
         "points": [],
         "bursts": set(),
         "tech": {},
+        "status": {},
     })
     command_counts = defaultdict(int)
+    source_status = {}
 
     for command in body.get("commands", []):
         name = command.get("name")
@@ -174,6 +179,27 @@ def analyze(raw):
             continue
         if name == "SetCommandSource":
             current_source = int(command.get("id") or 0)
+            continue
+        if name == "CommandSourceTerminated":
+            source_id = int(command.get("id") or current_source or 0)
+            player_name = source_players[source_id] if source_id < len(source_players) else f"Source {source_id}"
+            source_status[player_name] = {
+                "type": "left",
+                "tick": tick,
+                "second": tick / 10,
+                "detail": "Command source terminated",
+            }
+            continue
+        if name == "EndGame":
+            player_name = source_players[current_source] if current_source < len(source_players) else f"Source {current_source}"
+            source_status[player_name] = {
+                "type": "ended",
+                "tick": tick,
+                "second": tick / 10,
+                "detail": command.get("result") or command.get("reason") or "Game ended",
+            }
+            continue
+        if name == "DestroyEntity":
             continue
         if name not in ("IssueCommand", "IssueFactoryCommand"):
             continue
@@ -219,6 +245,8 @@ def analyze(raw):
 
     for index, name in enumerate(all_player_names):
         player = stats[name]
+        if name in source_status:
+            player["status"] = source_status[name]
         effective_actions = player["effectiveActions"]
         raw_commands = player["rawCommands"]
         apm = effective_actions / max(duration_seconds / 60, 1 / 60)
@@ -233,6 +261,7 @@ def analyze(raw):
             "effectiveActions": effective_actions,
             "rawCommands": raw_commands,
             "tech": player["tech"],
+            "status": player["status"],
             "points": player["points"][:5000],
             "buckets": buckets,
         })

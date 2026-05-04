@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from fafreplay import Parser, commands, extract_scfa
 import zstd
+import zstandard
 
 
 ACTION_COMMANDS = [
@@ -79,6 +80,24 @@ def looks_like_zstd(raw):
     return raw.startswith(b"\x28\xb5\x2f\xfd")
 
 
+def decompress_zstd(raw):
+    try:
+        return zstd.decompress(raw)
+    except Exception as first_error:
+        try:
+            dctx = zstandard.ZstdDecompressor()
+            with dctx.stream_reader(io.BytesIO(raw)) as reader:
+                chunks = []
+                while True:
+                    chunk = reader.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except Exception as stream_error:
+            raise RuntimeError(f"one-shot failed: {first_error}; streaming failed: {stream_error}") from stream_error
+
+
 def read_replay(raw, header, body_offset):
     if looks_like_scfa(raw):
         return raw
@@ -91,7 +110,7 @@ def read_replay(raw, header, body_offset):
             body = raw[body_offset:]
             if compression == "zstd" or looks_like_zstd(body):
                 try:
-                    return zstd.decompress(body)
+                    return decompress_zstd(body)
                 except Exception as zstd_error:
                     raise RuntimeError(f"Unable to decompress FAF replay zstd body: {zstd_error}") from error
             if compression == "zlib":
@@ -103,7 +122,7 @@ def read_replay(raw, header, body_offset):
 
     if looks_like_zstd(raw):
         try:
-            return zstd.decompress(raw)
+            return decompress_zstd(raw)
         except Exception as error:
             raise RuntimeError(f"Replay looks like a raw zstd stream, but decompression failed: {error}") from error
 

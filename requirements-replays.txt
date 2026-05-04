@@ -1,1 +1,2 @@
 faf-replay-parser[faf]==0.6.0
+zstandard==0.25.0

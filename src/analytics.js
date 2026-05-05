@@ -96,8 +96,7 @@ function isDrawGame(game) {
 }
 
 function isRankedGame(game) {
-  return RANKED_QUEUE_TYPES.has(normalizeQueueName(game.ratingType))
-    || RANKED_QUEUE_TYPES.has(normalizeQueueName(game.queueCategory));
+  return hasKnownRatingMovement(game);
 }
 
 function hasKnownRatingMovement(game) {

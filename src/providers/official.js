@@ -18,7 +18,7 @@ function parseRatings(document) {
     const leaderboard = getRelationshipResource(resource, "leaderboard", includedIndex);
     return {
       id: Number(resource.id),
-      technicalName: leaderboard?.attributes?.technicalName || leaderboard?.attributes?.nameKey || `leaderboard-${resource.id}`,
+      technicalName: normalizeLeaderboardName(leaderboard?.attributes?.technicalName || leaderboard?.attributes?.nameKey || `leaderboard-${resource.id}`),
       rating: attrs.rating,
       mean: attrs.mean,
       deviation: attrs.deviation,
@@ -53,9 +53,21 @@ function ratingChangeDelta(entry) {
   return Number((after - before).toFixed(2));
 }
 
+function normalizeLeaderboardName(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const aliases = {
+    ladder1v1: "ladder_1v1",
+    tmm2v2: "tmm_2v2",
+    tmm3v3: "tmm_3v3",
+    tmm4v4: "tmm_4v4_full_share",
+    tmm_4v4: "tmm_4v4_full_share"
+  };
+  return aliases[raw] || raw;
+}
+
 function inferQueueCategory(featuredMod, primaryRatingChange, stats) {
   if (primaryRatingChange?.leaderboardTechnicalName) {
-    return primaryRatingChange.leaderboardTechnicalName;
+    return normalizeLeaderboardName(primaryRatingChange.leaderboardTechnicalName);
   }
 
   const attrs = featuredMod?.attributes || {};
@@ -224,7 +236,7 @@ function normalizeGame(document, playerId) {
         const ratingChanges = getRelationshipResources(statResource, "ratingChanges", includedIndex).map((ratingResource) => {
           const leaderboard = getRelationshipResource(ratingResource, "leaderboard", includedIndex);
           return {
-            leaderboardTechnicalName: leaderboard?.attributes?.technicalName || null,
+            leaderboardTechnicalName: normalizeLeaderboardName(leaderboard?.attributes?.technicalName || null),
             meanBefore: ratingResource.attributes?.meanBefore ?? null,
             deviationBefore: ratingResource.attributes?.deviationBefore ?? null,
             meanAfter: ratingResource.attributes?.meanAfter ?? null,
@@ -307,7 +319,7 @@ function normalizeGame(document, playerId) {
       queueLabel: featuredMod?.attributes?.displayName || featuredMod?.attributes?.technicalName || "FAF",
       queueCategory: inferQueueCategory(featuredMod, primaryRatingChange, stats),
       validity: attrs.validity || "UNKNOWN",
-      ratingType: primaryRatingChange?.leaderboardTechnicalName || "unknown",
+      ratingType: normalizeLeaderboardName(primaryRatingChange?.leaderboardTechnicalName || "unknown"),
       ratingDelta: Number(ratingDelta.toFixed(2)),
       ratingBefore: displayedRating(primaryRatingChange?.meanBefore, primaryRatingChange?.deviationBefore),
       ratingAfter: displayedRating(primaryRatingChange?.meanAfter, primaryRatingChange?.deviationAfter),
@@ -316,7 +328,7 @@ function normalizeGame(document, playerId) {
       replayId: Number(resource.id),
       replayUrl: attrs.replayUrl || `https://replay.faforever.com/${resource.id}`,
       ratingChanges: selfStats.ratingChanges.map((entry) => ({
-        ratingType: entry.leaderboardTechnicalName || "unknown",
+        ratingType: normalizeLeaderboardName(entry.leaderboardTechnicalName || "unknown"),
         meanBefore: entry.meanBefore,
         meanAfter: entry.meanAfter,
         deviationBefore: entry.deviationBefore,

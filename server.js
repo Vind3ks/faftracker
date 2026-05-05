@@ -243,6 +243,8 @@ function getMimeType(filePath) {
       return "image/svg+xml";
     case ".png":
       return "image/png";
+    case ".ico":
+      return "image/x-icon";
     case ".jpg":
     case ".jpeg":
       return "image/jpeg";
@@ -392,7 +394,11 @@ async function handleApi(req, res, url) {
     const queueFilter = url.searchParams.get("queue") || "all";
     const gameLimit = url.searchParams.get("gameLimit") || "all";
     const payload = browserSession.reportPayload;
-    const report = buildPlayerReport(payload.player, payload.games, { queueFilter, gameLimit });
+    const report = buildPlayerReport(payload.player, payload.games, {
+      queueFilter,
+      gameLimit,
+      ratings: payload.meta?.ratings
+    });
     return sendJson(res, 200, {
       provider: payload.provider || "official",
       providerMeta: payload.meta,
@@ -547,7 +553,11 @@ async function handleApi(req, res, url) {
           loadState.message = progress.message || "Loading...";
         }
       });
-      const report = buildPlayerReport(payload.player, payload.games, { queueFilter, gameLimit });
+      const report = buildPlayerReport(payload.player, payload.games, {
+        queueFilter,
+        gameLimit,
+        ratings: payload.meta?.ratings
+      });
       browserSession.reportPayload = {
         provider: providerKey,
         meta: payload.meta,

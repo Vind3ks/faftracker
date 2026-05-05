@@ -724,6 +724,19 @@ button.secondary.active {
   gap: 12px;
 }
 
+.graph-controls {
+  min-height: 0;
+  margin: 14px 0 18px;
+}
+
+.graph-grid {
+  align-items: start;
+}
+
+.graph-grid article h2 {
+  margin-bottom: 12px;
+}
+
 .chart-period {
   display: grid;
   grid-template-columns: minmax(140px, 1.25fr) repeat(2, minmax(130px, 1fr));

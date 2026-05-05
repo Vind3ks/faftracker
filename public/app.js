@@ -424,28 +424,40 @@ function graphDateInRange(date) {
 
 function selectedGraphDelta(game) {
   const visible = chartVisibilityState.shared;
+
   if (!visible || !visible.size) {
-    return 0;
+    return (game.ratingChanges || [])
+      .filter(entry => Number.isFinite(Number(entry.delta)) && Number(entry.delta) !== 0)
+      .reduce((sum, entry) => sum + Number(entry.delta), 0);
   }
+
   return (game.ratingChanges || [])
-    .filter((entry) => visible.has(entry.ratingType) && Number.isFinite(Number(entry.delta)) && Number(entry.delta) !== 0)
+    .filter(entry =>
+      visible.has(entry.ratingType) &&
+      Number.isFinite(Number(entry.delta)) &&
+      Number(entry.delta) !== 0
+    )
     .reduce((sum, entry) => sum + Number(entry.delta), 0);
 }
 
 function aggregateRelationshipRows(report, kind) {
   const rows = new Map();
+
   for (const game of report.relationshipGames || []) {
     if (!graphDateInRange(game.date)) {
       continue;
     }
+
     const delta = selectedGraphDelta(game);
     if (!delta) {
       continue;
     }
+
     const names = kind === "teammates" ? game.teammates : game.opponents;
     if (!Array.isArray(names) || !names.length) {
       continue;
     }
+
     for (const name of names) {
       const bucket = rows.get(name) || {
         name,
@@ -455,26 +467,40 @@ function aggregateRelationshipRows(report, kind) {
         ratingGained: 0,
         ratingLost: 0
       };
+
       bucket.games += 1;
+
       if (game.playerOutcome === "WIN") {
         bucket.wins += 1;
       }
+
       bucket.netRatingDelta += delta;
+
       if (delta > 0) {
         bucket.ratingGained += delta;
       } else {
         bucket.ratingLost += Math.abs(delta);
       }
+
       rows.set(name, bucket);
     }
   }
-  return [...rows.values()].map((row) => ({
+
+  const calculatedRows = [...rows.values()].map((row) => ({
     ...row,
     netRatingDelta: round(row.netRatingDelta, 2),
     ratingGained: round(row.ratingGained, 2),
     ratingLost: round(row.ratingLost, 2),
     winRate: round((row.wins / Math.max(row.games, 1)) * 100)
   }));
+
+  if (calculatedRows.length) {
+    return calculatedRows;
+  }
+
+  return kind === "teammates"
+    ? (report.allTeammates || report.topTeammates || [])
+    : (report.allOpponents || report.topOpponents || []);
 }
 
 function updateShowMoreButton() {

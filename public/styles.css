@@ -1146,3 +1146,17 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+input[type="date"] {
+  background: #040A11C8;
+  color: #EBF3FB;
+  border: 1px solid #2a3a4a; /* tweak if needed */
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+  cursor: pointer;
+}

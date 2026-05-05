@@ -103,6 +103,28 @@ let lastRequest = null;
 let updateToastTimeout = null;
 let filtersCollapsed = false;
 let filtersStuck = false;
+let graphPeriodInputTimeout = null;
+
+function applyGraphPeriodChange(field, value) {
+  if (!chartPeriodState.shared) {
+    return;
+  }
+
+  chartPeriodState.shared.preset = "custom";
+  chartPeriodState.shared[field] = value;
+
+  window.clearTimeout(graphPeriodInputTimeout);
+
+  graphPeriodInputTimeout = window.setTimeout(() => {
+    if (currentPayload) {
+      renderReport(currentPayload);
+      showUpdateToast(
+        "Period applied",
+        "Charts, teammates, and opponents now use the selected period."
+      );
+    }
+  }, 500);
+}
 
 function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 0) {
   elements.loadingPanel.hidden = !isLoading;
@@ -1720,14 +1742,17 @@ document.addEventListener("click", (event) => {
   }
 });
 
-document.addEventListener("change", (event) => {
+document.addEventListener("input", (event) => {
   const presetSelect = event.target.closest("[data-chart-period-preset]");
   if (presetSelect) {
     if (chartPeriodState.shared) {
       chartPeriodState.shared.preset = presetSelect.value;
       if (currentPayload) {
         renderReport(currentPayload);
-        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
+        showUpdateToast(
+          "Period applied",
+          "Charts, teammates, and opponents now use the selected period."
+        );
       }
     }
     return;
@@ -1735,27 +1760,13 @@ document.addEventListener("change", (event) => {
 
   const fromInput = event.target.closest("[data-chart-period-from]");
   if (fromInput) {
-    if (chartPeriodState.shared) {
-      chartPeriodState.shared.preset = "custom";
-      chartPeriodState.shared.from = fromInput.value;
-      if (currentPayload) {
-        renderReport(currentPayload);
-        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
-      }
-    }
+    applyGraphPeriodChange("from", fromInput.value);
     return;
   }
 
   const toInput = event.target.closest("[data-chart-period-to]");
   if (toInput) {
-    if (chartPeriodState.shared) {
-      chartPeriodState.shared.preset = "custom";
-      chartPeriodState.shared.to = toInput.value;
-      if (currentPayload) {
-        renderReport(currentPayload);
-        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
-      }
-    }
+    applyGraphPeriodChange("to", toInput.value);
   }
 });
 

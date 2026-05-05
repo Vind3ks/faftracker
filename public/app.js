@@ -39,6 +39,8 @@
   showFiltersButton: document.getElementById("showFiltersButton"),
   ratingChart: document.getElementById("ratingChart"),
   monthlyChart: document.getElementById("monthlyChart"),
+  graphControls: document.getElementById("graphControls"),
+  resetGraphFiltersButton: document.getElementById("resetGraphFiltersButton"),
   opponentsTable: document.getElementById("opponentsTable"),
   opponentSearchInput: document.getElementById("opponentSearchInput"),
   hideSmallOpponentsButton: document.getElementById("hideSmallOpponentsButton"),
@@ -74,16 +76,13 @@ const relationshipState = {
 };
 const mapTendencyState = { visibleCount: 8, step: 12, query: "" };
 const chartVisibilityState = {
-  rating: new Set(),
-  monthly: new Set()
+  shared: new Set()
 };
 const chartKnownSeriesState = {
-  rating: new Set(),
-  monthly: new Set()
+  shared: new Set()
 };
 const chartPeriodState = {
-  rating: { preset: "all", from: "", to: "" },
-  monthly: { preset: "all", from: "", to: "" }
+  shared: { preset: "all", from: "", to: "" }
 };
 const insightExpandedState = {
   bestMonths: false,
@@ -197,6 +196,10 @@ function formatSigned(value) {
   return `${number > 0 ? "+" : ""}${number.toFixed(2)}`;
 }
 
+function round(value, digits = 1) {
+  return Number(Number(value || 0).toFixed(digits));
+}
+
 function renderStatus(el, status) {
   if (!el || !status) {
     return;
@@ -208,9 +211,6 @@ function renderStatus(el, status) {
 
 function renderCards(report) {
   const overview = report.overview || {};
-  const gameScope = overview.gameLimit
-    ? `Last ${overview.totalGames}`
-    : "All loaded";
   const rankedGames = Number(overview.rankedGames || 0);
   const unrankedGames = Number(overview.unrankedGames || 0);
   const draws = Number(overview.draws || 0);
@@ -220,10 +220,10 @@ function renderCards(report) {
     ? `<button class="secondary stat-link" type="button" data-streak-filter="${escapeHtml(streak.gameIds.join(","))}" data-streak-label="${escapeHtml(`${label}, ${streak.monthRange}`)}">View replays</button>`
     : "";
   const cards = [
-    { label: "Game sample", value: gameScope },
     { label: "Loaded games", value: overview.totalGames },
     { label: "Ranked games", value: rankedGames },
     { label: "Unranked games", value: unrankedGames },
+    { label: "Draws", value: draws },
     { label: "Ranked W/L", value: `${overview.wins}-${overview.losses}` },
     { label: "Ranked win rate", value: formatPercent(overview.winRate) },
     { label: "Recent ranked 25", value: formatPercent(overview.recentWinRate) },
@@ -253,8 +253,8 @@ function renderCards(report) {
   elements.overviewDisclaimer.innerHTML = `
     <strong>Ranked-only W/L:</strong>
     Win/loss ratio, win rate, recent form, and streak use only wins/losses with actual rating gain or loss.
-    ${draws ? `${escapeHtml(draws)} rating-moving draws are counted as ranked games, shown in history, and excluded from W/L and streaks.` : ""}
-    ${escapeHtml(unrankedGames)} loaded games without rating movement are counted as unranked and excluded from those cards.
+    ${draws ? `${escapeHtml(draws)} draws are counted in the draw card and excluded from W/L and streaks.` : ""}
+    ${escapeHtml(unrankedGames)} loaded games are outside a recognized ranked queue.
   `;
 }
 
@@ -412,6 +412,69 @@ function textMatchesQuery(value, query) {
 
 function filterNamedRows(rows, query) {
   return rows.filter((row) => textMatchesQuery(row.name, query));
+}
+
+function graphDateInRange(date) {
+  const state = chartPeriodState.shared || {};
+  const value = String(date || "").slice(0, 10);
+  return Boolean(value)
+    && (!state.from || value >= state.from)
+    && (!state.to || value <= state.to);
+}
+
+function selectedGraphDelta(game) {
+  const visible = chartVisibilityState.shared;
+  if (!visible || !visible.size) {
+    return 0;
+  }
+  return (game.ratingChanges || [])
+    .filter((entry) => visible.has(entry.ratingType) && Number.isFinite(Number(entry.delta)) && Number(entry.delta) !== 0)
+    .reduce((sum, entry) => sum + Number(entry.delta), 0);
+}
+
+function aggregateRelationshipRows(report, kind) {
+  const rows = new Map();
+  for (const game of report.relationshipGames || []) {
+    if (!graphDateInRange(game.date)) {
+      continue;
+    }
+    const delta = selectedGraphDelta(game);
+    if (!delta) {
+      continue;
+    }
+    const names = kind === "teammates" ? game.teammates : game.opponents;
+    if (!Array.isArray(names) || !names.length) {
+      continue;
+    }
+    for (const name of names) {
+      const bucket = rows.get(name) || {
+        name,
+        games: 0,
+        wins: 0,
+        netRatingDelta: 0,
+        ratingGained: 0,
+        ratingLost: 0
+      };
+      bucket.games += 1;
+      if (game.playerOutcome === "WIN") {
+        bucket.wins += 1;
+      }
+      bucket.netRatingDelta += delta;
+      if (delta > 0) {
+        bucket.ratingGained += delta;
+      } else {
+        bucket.ratingLost += Math.abs(delta);
+      }
+      rows.set(name, bucket);
+    }
+  }
+  return [...rows.values()].map((row) => ({
+    ...row,
+    netRatingDelta: round(row.netRatingDelta, 2),
+    ratingGained: round(row.ratingGained, 2),
+    ratingLost: round(row.ratingLost, 2),
+    winRate: round((row.wins / Math.max(row.games, 1)) * 100)
+  }));
 }
 
 function updateShowMoreButton() {
@@ -598,42 +661,50 @@ function shiftMonthLabel(label, months) {
   return date.toISOString().slice(0, 7);
 }
 
-function chartPresetRange(chartId, preset, series) {
+function chartPresetRange(preset, series) {
   const labels = getChartLabels(series);
   const last = labels[labels.length - 1] || "";
   if (!last || preset === "all") {
     return { from: "", to: "" };
   }
-  if (chartId === "monthly") {
-    const months = { last3: 2, last6: 5, last12: 11, last24: 23 }[preset] ?? 0;
-    return { from: shiftMonthLabel(last, months), to: last };
-  }
   const days = { last30: 30, last90: 90, last180: 180, last365: 365 }[preset] ?? 0;
   return { from: shiftDateLabel(last, days), to: last };
 }
 
-function syncChartPeriod(chartId, series) {
-  const state = chartPeriodState[chartId];
+function syncChartPeriod(series) {
+  const state = chartPeriodState.shared;
   if (!state || state.preset === "custom") {
     return;
   }
-  const range = chartPresetRange(chartId, state.preset, series);
+  const range = chartPresetRange(state.preset, series);
   state.from = range.from;
   state.to = range.to;
 }
 
-function filterSeriesByPeriod(series, chartId) {
-  const state = chartPeriodState[chartId] || {};
+function filterSeriesByPeriod(series) {
+  const state = chartPeriodState.shared || {};
   const from = String(state.from || "");
   const to = String(state.to || "");
   if (!from && !to) {
     return series;
   }
-  const normalize = (label) => chartId === "monthly" ? String(label || "").slice(0, 7) : String(label || "").slice(0, 10);
+  const normalize = (label) => {
+    const value = String(label || "");
+    return value.length === 7 ? `${value}-01` : value.slice(0, 10);
+  };
   return series
     .map((item) => ({
       ...item,
       points: item.points.filter((point) => {
+        const rawLabel = String(point.label || "");
+        if (rawLabel.length === 7) {
+          const monthStart = `${rawLabel}-01`;
+          const monthEndDate = new Date(`${monthStart}T00:00:00Z`);
+          monthEndDate.setUTCMonth(monthEndDate.getUTCMonth() + 1);
+          monthEndDate.setUTCDate(0);
+          const monthEnd = monthEndDate.toISOString().slice(0, 10);
+          return (!from || monthEnd >= from) && (!to || monthStart <= to);
+        }
         const label = normalize(point.label);
         return (!from || label >= from) && (!to || label <= to);
       })
@@ -641,39 +712,41 @@ function filterSeriesByPeriod(series, chartId) {
     .filter((item) => item.points.length);
 }
 
-function renderChartPeriodControls(chartId, series) {
-  const state = chartPeriodState[chartId];
+function isGraphPeriodDirty() {
+  const state = chartPeriodState.shared;
+  return Boolean(state && (state.preset !== "all" || state.from || state.to));
+}
+
+function renderGraphControls(series) {
+  const state = chartPeriodState.shared;
   const labels = getChartLabels(series);
   const first = labels[0] || "";
   const last = labels[labels.length - 1] || "";
-  const isMonthly = chartId === "monthly";
-  const presets = isMonthly
-    ? [["all", "All"], ["last3", "Last 3 months"], ["last6", "Last 6 months"], ["last12", "Last 12 months"], ["last24", "Last 24 months"], ["custom", "Custom"]]
-    : [["all", "All"], ["last30", "Last 30 days"], ["last90", "Last 90 days"], ["last180", "Last 180 days"], ["last365", "Last year"], ["custom", "Custom"]];
+  const presets = [["all", "All"], ["last30", "Last 30 days"], ["last90", "Last 90 days"], ["last180", "Last 180 days"], ["last365", "Last year"], ["custom", "Custom"]];
 
   return `
     <div class="chart-period">
       <label>
         <span>Period</span>
-        <select data-chart-period-preset="${escapeHtml(chartId)}">
+        <select data-chart-period-preset="shared">
           ${presets.map(([value, label]) => `<option value="${value}" ${state.preset === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
         </select>
       </label>
       <label>
         <span>From</span>
-        <input type="${isMonthly ? "month" : "date"}" value="${escapeHtml(state.from || "")}" min="${escapeHtml(first)}" max="${escapeHtml(last)}" data-chart-period-from="${escapeHtml(chartId)}" />
+        <input type="date" value="${escapeHtml(state.from || "")}" min="${escapeHtml(first)}" max="${escapeHtml(last)}" data-chart-period-from="shared" />
       </label>
       <label>
         <span>To</span>
-        <input type="${isMonthly ? "month" : "date"}" value="${escapeHtml(state.to || "")}" min="${escapeHtml(first)}" max="${escapeHtml(last)}" data-chart-period-to="${escapeHtml(chartId)}" />
+        <input type="date" value="${escapeHtml(state.to || "")}" min="${escapeHtml(first)}" max="${escapeHtml(last)}" data-chart-period-to="shared" />
       </label>
     </div>
   `;
 }
 
-function syncChartVisibility(chartId, series) {
-  const visible = chartVisibilityState[chartId];
-  const known = chartKnownSeriesState[chartId];
+function syncChartVisibility(series) {
+  const visible = chartVisibilityState.shared;
+  const known = chartKnownSeriesState.shared;
   const keys = new Set(series.map((item) => item.key));
   for (const key of [...visible]) {
     if (!keys.has(key)) {
@@ -698,7 +771,7 @@ function renderChartToggles(chartId, series) {
     return "";
   }
 
-  const visible = chartVisibilityState[chartId];
+  const visible = chartVisibilityState.shared;
   return `
     <div class="chart-toggles" aria-label="Visible game modes">
       ${series.map((item, index) => {
@@ -833,13 +906,15 @@ function aggregateMonthlySeries(series) {
 }
 
 function renderRelationshipTables(report) {
+  const allOpponents = aggregateRelationshipRows(report, "opponents");
+  const allTeammates = aggregateRelationshipRows(report, "teammates");
   const opponentRows = sortRows(
-    filterNamedRows(report.allOpponents || report.topOpponents || [], relationshipState.opponents.query)
+    filterNamedRows(allOpponents, relationshipState.opponents.query)
       .filter((row) => Number(row.games || 0) >= relationshipState.opponents.minGames),
     tableSortState.opponents
   );
   const teammateRows = sortRows(
-    filterNamedRows(report.allTeammates || report.topTeammates || [], relationshipState.teammates.query)
+    filterNamedRows(allTeammates, relationshipState.teammates.query)
       .filter((row) => Number(row.games || 0) >= relationshipState.teammates.minGames),
     tableSortState.teammates
   );
@@ -1109,21 +1184,6 @@ function renderReport(payload) {
     (value) => `${Math.round(Number(value || 0))}`,
     (point) => `${Math.round(Number(point.actualRating || 0))} FAF rating${Number.isFinite(Number(point.ratingDelta)) ? ` (${formatSigned(point.ratingDelta)} this game)` : ""}`
   );
-  syncChartPeriod("rating", ratingSeries);
-  const periodRatingSeries = filterSeriesByPeriod(ratingSeries, "rating");
-  syncChartVisibility("rating", periodRatingSeries);
-  const visibleRatingSeries = periodRatingSeries.filter((item) => chartVisibilityState.rating.has(item.key));
-  elements.ratingChart.innerHTML = renderChartPeriodControls("rating", ratingSeries) + renderChartToggles("rating", periodRatingSeries);
-  const ratingSurface = document.createElement("div");
-  elements.ratingChart.appendChild(ratingSurface);
-  renderMultiLineChart(
-    ratingSurface,
-    "Rating trend",
-    visibleRatingSeries,
-    (value) => `${Math.round(Number(value || 0))}`,
-    "FAF displayed rating by game mode. Pick any period above, then toggle modes to compare only the lines you care about."
-  );
-
   const monthlySeries = groupSeries(
     report.charts.monthlyPerformanceByMode || [],
     "ratingType",
@@ -1135,12 +1195,37 @@ function renderReport(payload) {
     },
     (point) => `${point.wins}-${point.losses}${point.draws ? `, ${point.draws} draws` : ""} over ${point.games} rated games`
   );
-  syncChartPeriod("monthly", monthlySeries);
-  const periodMonthlySeries = filterSeriesByPeriod(monthlySeries, "monthly");
-  syncChartVisibility("monthly", periodMonthlySeries);
-  const visibleMonthlySeries = periodMonthlySeries.filter((item) => chartVisibilityState.monthly.has(item.key));
+
+  syncChartPeriod(ratingSeries.length ? ratingSeries : monthlySeries);
+  const periodRatingSeries = filterSeriesByPeriod(ratingSeries);
+  const periodMonthlySeries = filterSeriesByPeriod(monthlySeries);
+  syncChartVisibility([...periodRatingSeries, ...periodMonthlySeries]);
+  const visibleRatingSeries = periodRatingSeries.filter((item) => chartVisibilityState.shared.has(item.key));
+  const visibleMonthlySeries = periodMonthlySeries.filter((item) => chartVisibilityState.shared.has(item.key));
   const aggregateMonthly = aggregateMonthlySeries(visibleMonthlySeries);
-  elements.monthlyChart.innerHTML = renderChartPeriodControls("monthly", monthlySeries) + renderChartToggles("monthly", periodMonthlySeries);
+
+  if (elements.graphControls) {
+    elements.graphControls.innerHTML = renderGraphControls(ratingSeries.length ? ratingSeries : monthlySeries)
+      + renderChartToggles("shared", [...periodRatingSeries, ...periodMonthlySeries].filter((item, index, list) => (
+        list.findIndex((candidate) => candidate.key === item.key) === index
+      )));
+  }
+  if (elements.resetGraphFiltersButton) {
+    elements.resetGraphFiltersButton.hidden = !isGraphPeriodDirty();
+  }
+
+  elements.ratingChart.innerHTML = "";
+  const ratingSurface = document.createElement("div");
+  elements.ratingChart.appendChild(ratingSurface);
+  renderMultiLineChart(
+    ratingSurface,
+    "Rating trend",
+    visibleRatingSeries,
+    (value) => `${Math.round(Number(value || 0))}`,
+    "FAF displayed rating by game mode. Pick any period above, then toggle modes to compare only the lines you care about."
+  );
+
+  elements.monthlyChart.innerHTML = "";
   const monthlySurface = document.createElement("div");
   elements.monthlyChart.appendChild(monthlySurface);
   renderMultiLineChart(
@@ -1346,6 +1431,9 @@ async function loadReport(options = {}) {
         : `<p class="empty">${escapeHtml(payload.detail || "No extra detail provided.")}</p>`;
       elements.overview.innerHTML = "";
       elements.overviewDisclaimer.innerHTML = "";
+      if (elements.graphControls) {
+        elements.graphControls.innerHTML = "";
+      }
       elements.ratingChart.innerHTML = "";
       elements.monthlyChart.innerHTML = "";
       elements.opponentsTable.innerHTML = "";
@@ -1534,9 +1622,8 @@ elements.mapSearchInput.addEventListener("input", () => {
 document.addEventListener("click", (event) => {
   const chartToggle = event.target.closest("[data-chart-id][data-chart-series]");
   if (chartToggle) {
-    const chartId = chartToggle.dataset.chartId;
     const seriesKey = chartToggle.dataset.chartSeries;
-    const visible = chartVisibilityState[chartId];
+    const visible = chartVisibilityState.shared;
     if (visible && seriesKey) {
       if (visible.has(seriesKey)) {
         visible.delete(seriesKey);
@@ -1545,7 +1632,17 @@ document.addEventListener("click", (event) => {
       }
       if (currentPayload) {
         renderReport(currentPayload);
+        showUpdateToast("Graph filters applied", "Charts, teammates, and opponents now use the selected period and game modes.");
       }
+    }
+    return;
+  }
+
+  if (event.target.closest("#resetGraphFiltersButton")) {
+    chartPeriodState.shared = { preset: "all", from: "", to: "" };
+    if (currentPayload) {
+      renderReport(currentPayload);
+      showUpdateToast("Period reset", "Charts, teammates, and opponents are back to the full report period.");
     }
     return;
   }
@@ -1600,11 +1697,11 @@ document.addEventListener("click", (event) => {
 document.addEventListener("change", (event) => {
   const presetSelect = event.target.closest("[data-chart-period-preset]");
   if (presetSelect) {
-    const chartId = presetSelect.dataset.chartPeriodPreset;
-    if (chartPeriodState[chartId]) {
-      chartPeriodState[chartId].preset = presetSelect.value;
+    if (chartPeriodState.shared) {
+      chartPeriodState.shared.preset = presetSelect.value;
       if (currentPayload) {
         renderReport(currentPayload);
+        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
       }
     }
     return;
@@ -1612,12 +1709,12 @@ document.addEventListener("change", (event) => {
 
   const fromInput = event.target.closest("[data-chart-period-from]");
   if (fromInput) {
-    const chartId = fromInput.dataset.chartPeriodFrom;
-    if (chartPeriodState[chartId]) {
-      chartPeriodState[chartId].preset = "custom";
-      chartPeriodState[chartId].from = fromInput.value;
+    if (chartPeriodState.shared) {
+      chartPeriodState.shared.preset = "custom";
+      chartPeriodState.shared.from = fromInput.value;
       if (currentPayload) {
         renderReport(currentPayload);
+        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
       }
     }
     return;
@@ -1625,12 +1722,12 @@ document.addEventListener("change", (event) => {
 
   const toInput = event.target.closest("[data-chart-period-to]");
   if (toInput) {
-    const chartId = toInput.dataset.chartPeriodTo;
-    if (chartPeriodState[chartId]) {
-      chartPeriodState[chartId].preset = "custom";
-      chartPeriodState[chartId].to = toInput.value;
+    if (chartPeriodState.shared) {
+      chartPeriodState.shared.preset = "custom";
+      chartPeriodState.shared.to = toInput.value;
       if (currentPayload) {
         renderReport(currentPayload);
+        showUpdateToast("Period applied", "Charts, teammates, and opponents now use the selected period.");
       }
     }
   }

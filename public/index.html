@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>FAF Tracker</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/styles.css?v=20260505-restored" />
   </head>
   <body>
@@ -151,18 +154,25 @@
       <section id="overview" class="cards report-section" hidden></section>
       <section id="overviewDisclaimer" class="overview-disclaimer report-section" hidden></section>
 
-      <section class="grid report-section" hidden>
-        <article class="panel">
-          <div class="history-header">
-            <h2>Rating Trend</h2>
+      <section class="panel report-section" hidden>
+        <div class="history-header">
+          <h2>Rating & Performance</h2>
+          <div class="history-actions">
+            <button id="resetGraphFiltersButton" class="secondary" type="button" hidden>Reset period</button>
           </div>
-          <div id="ratingChart" class="chart-wrap"></div>
-        </article>
+        </div>
+        <div id="graphControls" class="chart-wrap graph-controls"></div>
+        <div class="grid graph-grid">
+          <article>
+            <h2>Rating Trend</h2>
+            <div id="ratingChart" class="chart-wrap"></div>
+          </article>
 
-        <article class="panel">
-          <h2>Monthly Performance</h2>
-          <div id="monthlyChart" class="chart-wrap"></div>
-        </article>
+          <article>
+            <h2>Monthly Performance</h2>
+            <div id="monthlyChart" class="chart-wrap"></div>
+          </article>
+        </div>
       </section>
 
       <section class="grid report-section" hidden>

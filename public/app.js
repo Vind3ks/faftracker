@@ -515,14 +515,18 @@ function aggregateRelationshipRows(report, kind) {
     ratingLost: round(row.ratingLost, 2),
     winRate: round((row.wins / Math.max(row.games, 1)) * 100)
   }));
-
+  
   if (calculatedRows.length) {
     return calculatedRows;
   }
-
-  return kind === "teammates"
-    ? (report.allTeammates || report.topTeammates || [])
-    : (report.allOpponents || report.topOpponents || []);
+  
+  if (!Array.isArray(report.relationshipGames) || !report.relationshipGames.length) {
+    return kind === "teammates"
+      ? (report.allTeammates || report.topTeammates || [])
+      : (report.allOpponents || report.topOpponents || []);
+  }
+  
+  return [];
 }
 
 function updateShowMoreButton() {

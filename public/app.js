@@ -1216,7 +1216,20 @@ function clearHistoryFilter() {
   renderGameHistory();
 }
 
+function resetGraphFilters() {
+  chartPeriodState.shared = { preset: "all", from: "", to: "" };
+  chartVisibilityState.shared = new Set();
+  chartKnownSeriesState.shared = new Set();
+}
+
 function renderReport(payload) {
+  const previousPlayer = currentPayload?.player?.login;
+  const nextPlayer = payload?.player?.login;
+
+  if (previousPlayer !== nextPlayer) {
+    resetGraphFilters();
+  }
+
   setReportVisible(true);
   const { report, player, providerMeta } = payload;
   currentPayload = payload;

@@ -97,10 +97,44 @@ function isLegacyBrokenOneVsOne(stats) {
   return stats.length === 2 && hasCollapsedTeams(stats);
 }
 
-function inferOutcomeFromStats(selfStats, stats) {
+function getTwoPlayerScoreOutcome(selfStats, stats) {
+  if (!Array.isArray(stats) || stats.length !== 2) {
+    return null;
+  }
+  const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
+  const selfScore = Number(selfStats.score);
+  const otherScore = Number(other?.score);
+  if (!Number.isFinite(selfScore) || !Number.isFinite(otherScore)) {
+    return null;
+  }
+  if (selfScore === otherScore) {
+    return "DRAW";
+  }
+  return selfScore > otherScore ? "WIN" : "LOSS";
+}
+
+function inferOutcomeFromStats(selfStats, stats, options = {}) {
   const explicit = selfStats.outcome;
+  const validity = String(options.validity || "UNKNOWN");
+  const queueCategory = normalizeLeaderboardName(options.queueCategory || "unknown");
   const teamCount = new Set(stats.map((entry) => entry.team).filter((team) => team != null)).size;
   const knownOutcomes = stats.map((entry) => entry.outcome).filter((outcome) => outcome && outcome !== "UNKNOWN");
+  const allResultsUnknown = stats.length > 0 && stats.every((entry) => !entry.outcome || entry.outcome === "UNKNOWN");
+
+  if (queueCategory === "ladder_1v1" && allResultsUnknown) {
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome) {
+      return scoreOutcome;
+    }
+  }
+
+  if (validity === "TOO_MANY_DESYNCS" && knownOutcomes.length) {
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome === "DRAW") {
+      return "DRAW";
+    }
+  }
+
   if (teamCount >= 2 && knownOutcomes.length >= 2 && knownOutcomes.every((outcome) => outcome === "DEFEAT")) {
     return "DRAW";
   }
@@ -118,11 +152,9 @@ function inferOutcomeFromStats(selfStats, stats) {
   }
 
   if (isLegacyBrokenOneVsOne(stats)) {
-    const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
-    const selfScore = Number(selfStats.score);
-    const otherScore = Number(other?.score);
-    if (Number.isFinite(selfScore) && Number.isFinite(otherScore) && selfScore !== otherScore) {
-      return selfScore > otherScore ? "WIN" : "LOSS";
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome && scoreOutcome !== "DRAW") {
+      return scoreOutcome;
     }
   }
 
@@ -274,7 +306,11 @@ function normalizeGame(document, playerId) {
       }
       return sum + delta;
     }, 0);
-    const inferredOutcome = inferOutcomeFromStats(selfStats, stats);
+    const queueCategory = inferQueueCategory(featuredMod, primaryRatingChange, stats);
+    const inferredOutcome = inferOutcomeFromStats(selfStats, stats, {
+      queueCategory,
+      validity: attrs.validity || "UNKNOWN"
+    });
     const ratingOutcome = inferOutcomeFromRatingDelta(ratingDelta);
 
     const brokenOneVsOne = isLegacyBrokenOneVsOne(stats);
@@ -317,7 +353,7 @@ function normalizeGame(document, playerId) {
         : 0,
       mapName: map?.attributes?.displayName || mapVersion?.attributes?.filename || "Mapgen / generated map",
       queueLabel: featuredMod?.attributes?.displayName || featuredMod?.attributes?.technicalName || "FAF",
-      queueCategory: inferQueueCategory(featuredMod, primaryRatingChange, stats),
+      queueCategory,
       validity: attrs.validity || "UNKNOWN",
       ratingType: normalizeLeaderboardName(primaryRatingChange?.leaderboardTechnicalName || "unknown"),
       ratingDelta: Number(ratingDelta.toFixed(2)),

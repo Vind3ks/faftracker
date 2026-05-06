@@ -1,5 +1,5 @@
 {
-  "name": "faf-scout",
+  "name": "faf-tracker",
   "version": "0.1.0",
   "private": true,
   "description": "Local-first FAF analytics dashboard with a pluggable data provider layer.",

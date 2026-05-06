@@ -113,6 +113,40 @@ function getTwoPlayerScoreOutcome(selfStats, stats) {
   return selfScore > otherScore ? "WIN" : "LOSS";
 }
 
+function ratingDeltaFromStatsEntry(entry) {
+  if (!Array.isArray(entry?.ratingChanges)) {
+    return null;
+  }
+  const deltas = entry.ratingChanges
+    .map(ratingChangeDelta)
+    .filter((delta) => delta != null);
+  if (!deltas.length) {
+    return null;
+  }
+  return deltas.reduce((sum, delta) => sum + delta, 0);
+}
+
+function getTwoPlayerRatingOutcome(selfStats, stats) {
+  if (!Array.isArray(stats) || stats.length !== 2) {
+    return null;
+  }
+  const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
+  const selfDelta = ratingDeltaFromStatsEntry(selfStats);
+  const otherDelta = ratingDeltaFromStatsEntry(other);
+  if (!Number.isFinite(selfDelta) || !Number.isFinite(otherDelta)) {
+    return null;
+  }
+
+  if (selfDelta > 0 && otherDelta < 0) {
+    return "WIN";
+  }
+  if (selfDelta < 0 && otherDelta > 0) {
+    return "LOSS";
+  }
+
+  return "DRAW";
+}
+
 function inferOutcomeFromStats(selfStats, stats, options = {}) {
   const explicit = selfStats.outcome;
   const validity = String(options.validity || "UNKNOWN");
@@ -125,6 +159,11 @@ function inferOutcomeFromStats(selfStats, stats, options = {}) {
     const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
     if (scoreOutcome) {
       return scoreOutcome;
+    }
+
+    const ratingOutcome = getTwoPlayerRatingOutcome(selfStats, stats);
+    if (ratingOutcome) {
+      return ratingOutcome;
     }
   }
 

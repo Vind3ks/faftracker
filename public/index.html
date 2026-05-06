@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>FAF Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260504-queue-notices" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=20260505-restored" />
   </head>
   <body>
     <div id="updateToast" class="update-toast" role="status" aria-live="polite" hidden>
@@ -41,18 +42,6 @@
           <label class="field">
             <span>Player</span>
             <input id="playerInput" type="text" value="" placeholder="Enter FAF login" autocomplete="off" />
-          </label>
-
-          <label class="field">
-            <span>Queue</span>
-            <select id="queueFilterSelect">
-              <option value="all">All queues</option>
-              <option value="global">Global</option>
-              <option value="ladder_1v1">Ladder 1v1</option>
-              <option value="tmm_2v2">TMM 2v2</option>
-              <option value="tmm_3v3">TMM 3v3</option>
-              <option value="tmm_4v4_full_share">TMM 4v4</option>
-            </select>
           </label>
 
           <button id="loadButton" class="primary">Load player report</button>
@@ -123,46 +112,93 @@
         </div>
       </section>
 
+      <section id="reportFilters" class="report-filter-bar report-section" hidden>
+        <div class="filter-copy">
+          <span id="reportFilterPlayer">Current report</span>
+        </div>
+        <div class="filter-chip-row">
+          <label class="filter-chip">
+            <span>Queue</span>
+            <select id="queueFilterSelect">
+              <option value="all">All queues</option>
+              <option value="global">Global</option>
+              <option value="ladder_1v1">Ladder 1v1</option>
+              <option value="tmm_2v2">TMM 2v2</option>
+              <option value="tmm_3v3">TMM 3v3</option>
+              <option value="tmm_4v4_full_share">TMM 4v4</option>
+            </select>
+          </label>
+
+          <label class="filter-chip">
+            <span>Analyze</span>
+            <select id="gameLimitSelect">
+              <option value="all">All loaded</option>
+              <option value="250">Last 250</option>
+              <option value="500">Last 500</option>
+              <option value="1000">Last 1000</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+
+          <label id="customGameLimitField" class="filter-chip custom-limit-field" hidden>
+            <span>Games</span>
+            <input id="customGameLimitInput" type="number" min="1" step="1" placeholder="750" />
+          </label>
+        </div>
+        <button id="collapseFiltersButton" class="toolbar-tab toolbar-tab-collapse" type="button" aria-label="Hide report filters" title="Hide report filters"><span class="chevron chevron-up" aria-hidden="true"></span></button>
+      </section>
+
+      <button id="showFiltersButton" class="toolbar-tab toolbar-tab-expand" type="button" aria-label="Show report filters" title="Show report filters" hidden><span class="chevron chevron-down" aria-hidden="true"></span></button>
+
       <section id="overview" class="cards report-section" hidden></section>
       <section id="overviewDisclaimer" class="overview-disclaimer report-section" hidden></section>
 
-      <section class="grid report-section" hidden>
-        <article class="panel">
-          <div class="history-header">
-            <h2>Rating Trend</h2>
+      <section class="panel report-section" hidden>
+        <div class="history-header">
+          <h2>Rating & Performance</h2>
+          <div class="history-actions">
+            <button id="resetGraphFiltersButton" class="secondary" type="button" hidden>Reset period</button>
           </div>
-          <div id="ratingChart" class="chart-wrap"></div>
-        </article>
+        </div>
+        <div id="graphControls" class="chart-wrap graph-controls"></div>
+        <div class="grid graph-grid">
+          <article>
+            <h2>Rating Trend</h2>
+            <div id="ratingChart" class="chart-wrap"></div>
+          </article>
 
-        <article class="panel">
-          <h2>Monthly Performance</h2>
-          <div id="monthlyChart" class="chart-wrap"></div>
-        </article>
+          <article>
+            <h2>Monthly Performance</h2>
+            <div id="monthlyChart" class="chart-wrap"></div>
+          </article>
+        </div>
       </section>
 
       <section class="grid report-section" hidden>
         <article class="panel">
           <div class="history-header">
-            <h2>Opponents</h2>
-            <div class="history-actions">
-              <input id="opponentSearchInput" class="section-search" type="search" placeholder="Search opponents" />
-              <button id="hideOpponentsButton" class="secondary" hidden>Hide all</button>
-              <button id="showMoreOpponentsButton" class="secondary">Show more opponents</button>
-            </div>
-          </div>
-          <div id="opponentsTable" class="table-wrap"></div>
-        </article>
-
-        <article class="panel">
-          <div class="history-header">
             <h2>Teammates</h2>
             <div class="history-actions">
               <input id="teammateSearchInput" class="section-search" type="search" placeholder="Search teammates" />
+              <button id="hideSmallTeammatesButton" class="secondary" type="button">Hide &lt;20 games</button>
               <button id="hideTeammatesButton" class="secondary" hidden>Hide all</button>
               <button id="showMoreTeammatesButton" class="secondary">Show more teammates</button>
             </div>
           </div>
           <div id="teammatesTable" class="table-wrap"></div>
+        </article>
+
+        <article class="panel">
+          <div class="history-header">
+            <h2>Opponents</h2>
+            <div class="history-actions">
+              <input id="opponentSearchInput" class="section-search" type="search" placeholder="Search opponents" />
+              <button id="hideSmallOpponentsButton" class="secondary" type="button">Hide &lt;20 games</button>
+              <button id="hideOpponentsButton" class="secondary" hidden>Hide all</button>
+              <button id="showMoreOpponentsButton" class="secondary">Show more opponents</button>
+            </div>
+          </div>
+          <div id="opponentsTable" class="table-wrap"></div>
         </article>
       </section>
 
@@ -208,6 +244,8 @@
       </section>
     </div>
 
-    <script src="/app.js?v=20260504-queue-notices"></script>
+    <button id="scrollTopButton" class="scroll-top-button" type="button" aria-label="Scroll to top" hidden><span class="chevron chevron-up" aria-hidden="true"></span></button>
+
+    <script src="/app.js?v=20260505-restored"></script>
   </body>
   </html>

@@ -3,6 +3,7 @@ const { buildIncludedIndex, getRelationshipResource, getRelationshipResources } 
 const { getCacheState, writeCache } = require("../player-cache");
 
 const GAME_PAGE_CONCURRENCY = Math.max(1, Math.min(6, Number(process.env.FAF_GAME_PAGE_CONCURRENCY || 4)));
+const OFFICIAL_CACHE_VERSION = 2;
 
 function providerError(message, options = {}) {
   const error = new Error(message);
@@ -18,7 +19,7 @@ function parseRatings(document) {
     const leaderboard = getRelationshipResource(resource, "leaderboard", includedIndex);
     return {
       id: Number(resource.id),
-      technicalName: leaderboard?.attributes?.technicalName || leaderboard?.attributes?.nameKey || `leaderboard-${resource.id}`,
+      technicalName: normalizeLeaderboardName(leaderboard?.attributes?.technicalName || leaderboard?.attributes?.nameKey || `leaderboard-${resource.id}`),
       rating: attrs.rating,
       mean: attrs.mean,
       deviation: attrs.deviation,
@@ -53,9 +54,21 @@ function ratingChangeDelta(entry) {
   return Number((after - before).toFixed(2));
 }
 
+function normalizeLeaderboardName(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const aliases = {
+    ladder1v1: "ladder_1v1",
+    tmm2v2: "tmm_2v2",
+    tmm3v3: "tmm_3v3",
+    tmm4v4: "tmm_4v4_full_share",
+    tmm_4v4: "tmm_4v4_full_share"
+  };
+  return aliases[raw] || raw;
+}
+
 function inferQueueCategory(featuredMod, primaryRatingChange, stats) {
   if (primaryRatingChange?.leaderboardTechnicalName) {
-    return primaryRatingChange.leaderboardTechnicalName;
+    return normalizeLeaderboardName(primaryRatingChange.leaderboardTechnicalName);
   }
 
   const attrs = featuredMod?.attributes || {};
@@ -85,24 +98,123 @@ function isLegacyBrokenOneVsOne(stats) {
   return stats.length === 2 && hasCollapsedTeams(stats);
 }
 
-function inferOutcomeFromStats(selfStats, stats) {
+function getTwoPlayerScoreOutcome(selfStats, stats) {
+  if (!Array.isArray(stats) || stats.length !== 2) {
+    return null;
+  }
+  const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
+  const selfScore = Number(selfStats.score);
+  const otherScore = Number(other?.score);
+  if (!Number.isFinite(selfScore) || !Number.isFinite(otherScore)) {
+    return null;
+  }
+  if (selfScore === otherScore) {
+    return "DRAW";
+  }
+  return selfScore > otherScore ? "WIN" : "LOSS";
+}
+
+function ratingDeltaFromStatsEntry(entry) {
+  if (!Array.isArray(entry?.ratingChanges)) {
+    return null;
+  }
+  const deltas = entry.ratingChanges
+    .map(ratingChangeDelta)
+    .filter((delta) => delta != null);
+  if (!deltas.length) {
+    return null;
+  }
+  return deltas.reduce((sum, delta) => sum + delta, 0);
+}
+
+function getTwoPlayerRatingOutcome(selfStats, stats) {
+  if (!Array.isArray(stats) || stats.length !== 2) {
+    return null;
+  }
+  const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
+  const selfDelta = ratingDeltaFromStatsEntry(selfStats);
+  const otherDelta = ratingDeltaFromStatsEntry(other);
+  if (!Number.isFinite(selfDelta) || !Number.isFinite(otherDelta)) {
+    return null;
+  }
+
+  if (selfDelta > 0 && otherDelta < 0) {
+    return "WIN";
+  }
+  if (selfDelta < 0 && otherDelta > 0) {
+    return "LOSS";
+  }
+
+  return "DRAW";
+}
+
+function inferOutcomeFromStats(selfStats, stats, options = {}) {
   const explicit = selfStats.outcome;
+  const validity = String(options.validity || "UNKNOWN");
+  const queueCategory = normalizeLeaderboardName(options.queueCategory || "unknown");
+  const teamCount = new Set(stats.map((entry) => entry.team).filter((team) => team != null)).size;
+  const knownOutcomes = stats.map((entry) => entry.outcome).filter((outcome) => outcome && outcome !== "UNKNOWN");
+  const allResultsUnknown = stats.length > 0 && stats.every((entry) => !entry.outcome || entry.outcome === "UNKNOWN");
+  const hasConflictingOutcome = stats.some((entry) => entry.outcome === "CONFLICTING");
+
+if (
+  stats.length === 2 &&
+  (validity === "UNKNOWN_RESULT" || hasConflictingOutcome)
+) {
+  const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+  if (scoreOutcome) {
+    return scoreOutcome;
+  }
+
+  const ratingOutcome = getTwoPlayerRatingOutcome(selfStats, stats);
+  if (ratingOutcome) {
+    return ratingOutcome;
+  }
+}
+
+  if (queueCategory === "ladder_1v1" && allResultsUnknown) {
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome) {
+      return scoreOutcome;
+    }
+
+    const ratingOutcome = getTwoPlayerRatingOutcome(selfStats, stats);
+    if (ratingOutcome) {
+      return ratingOutcome;
+    }
+  }
+
+  if (
+    queueCategory === "ladder_1v1" &&
+    validity === "TOO_MANY_DESYNCS" &&
+    allResultsUnknown
+  ) {
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome === "DRAW") {
+      return "DRAW";
+    }
+  }
+
+  if (teamCount >= 2 && knownOutcomes.length >= 2 && knownOutcomes.every((outcome) => outcome === "DEFEAT")) {
+    return "DRAW";
+  }
   if (explicit === "VICTORY") {
     return "WIN";
   }
   if (explicit === "DEFEAT") {
     return "LOSS";
   }
+  if (explicit === "DRAW") {
+    return "DRAW";
+  }
   if (explicit && explicit !== "UNKNOWN") {
     return explicit;
   }
 
   if (isLegacyBrokenOneVsOne(stats)) {
-    const other = stats.find((entry) => entry.player.id !== selfStats.player.id);
-    const selfScore = Number(selfStats.score);
-    const otherScore = Number(other?.score);
-    if (Number.isFinite(selfScore) && Number.isFinite(otherScore) && selfScore !== otherScore) {
-      return selfScore > otherScore ? "WIN" : "LOSS";
+    const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+    if (scoreOutcome && scoreOutcome !== "DRAW") {
+      return scoreOutcome;
     }
   }
 
@@ -127,10 +239,79 @@ function inferOutcomeFromStats(selfStats, stats) {
   const topScore = sortedScores[0][1];
   const topTeams = sortedScores.filter((entry) => entry[1] === topScore).map((entry) => entry[0]);
   if (topTeams.length !== 1) {
-    return explicit || "UNKNOWN";
+    return topTeams.length > 1 ? "DRAW" : (explicit || "UNKNOWN");
   }
 
   return topTeams[0] === selfStats.team ? "WIN" : "LOSS";
+}
+
+function inferOutcomeFromRatingDelta(ratingDelta) {
+  if (ratingDelta > 0) {
+    return "WIN";
+  }
+  if (ratingDelta < 0) {
+    return "LOSS";
+  }
+  return null;
+}
+
+function ratingDeltaFromGame(game) {
+  if (Number.isFinite(Number(game?.ratingDelta)) && Number(game.ratingDelta) !== 0) {
+    return Number(game.ratingDelta);
+  }
+  if (!Array.isArray(game?.ratingChanges)) {
+    return 0;
+  }
+  return game.ratingChanges.reduce((sum, entry) => {
+    const delta = Number(entry.delta);
+    return Number.isFinite(delta) ? sum + delta : sum;
+  }, 0);
+}
+
+function meanDeltaFromGame(game) {
+  if (!Array.isArray(game?.ratingChanges)) {
+    return null;
+  }
+  const deltas = game.ratingChanges
+    .map((entry) => {
+      const before = Number(entry.meanBefore);
+      const after = Number(entry.meanAfter);
+      return Number.isFinite(before) && Number.isFinite(after) ? after - before : null;
+    })
+    .filter((delta) => delta != null);
+  if (!deltas.length) {
+    return null;
+  }
+  return deltas.reduce((sum, delta) => sum + delta, 0);
+}
+
+function applyRatingOutcomeOverrides(games) {
+  return (games || []).map((game) => {
+    if (game.playerOutcome === "DRAW" || game.apiPlayerOutcome === "DRAW") {
+      return {
+        ...game,
+        playerOutcome: "DRAW",
+        apiPlayerOutcome: game.apiPlayerOutcome || "DRAW"
+      };
+    }
+    const meanDelta = meanDeltaFromGame(game);
+    if (game.playerOutcome === "LOSS" && meanDelta != null && meanDelta > 0) {
+      return {
+        ...game,
+        apiPlayerOutcome: game.apiPlayerOutcome || game.playerOutcome,
+        playerOutcome: "DRAW"
+      };
+    }
+    const ratingOutcome = inferOutcomeFromRatingDelta(ratingDeltaFromGame(game));
+    if (!ratingOutcome || game.playerOutcome === ratingOutcome) {
+      return game;
+    }
+    return {
+      ...game,
+      apiPlayerOutcome: game.apiPlayerOutcome || game.playerOutcome,
+      playerOutcome: ratingOutcome
+    };
+  });
 }
 
 function normalizeGame(document, playerId) {
@@ -147,7 +328,7 @@ function normalizeGame(document, playerId) {
         const ratingChanges = getRelationshipResources(statResource, "ratingChanges", includedIndex).map((ratingResource) => {
           const leaderboard = getRelationshipResource(ratingResource, "leaderboard", includedIndex);
           return {
-            leaderboardTechnicalName: leaderboard?.attributes?.technicalName || null,
+            leaderboardTechnicalName: normalizeLeaderboardName(leaderboard?.attributes?.technicalName || null),
             meanBefore: ratingResource.attributes?.meanBefore ?? null,
             deviationBefore: ratingResource.attributes?.deviationBefore ?? null,
             meanAfter: ratingResource.attributes?.meanAfter ?? null,
@@ -185,7 +366,12 @@ function normalizeGame(document, playerId) {
       }
       return sum + delta;
     }, 0);
-    const inferredOutcome = inferOutcomeFromStats(selfStats, stats);
+    const queueCategory = inferQueueCategory(featuredMod, primaryRatingChange, stats);
+    const inferredOutcome = inferOutcomeFromStats(selfStats, stats, {
+      queueCategory,
+      validity: attrs.validity || "UNKNOWN"
+    });
+    const ratingOutcome = inferOutcomeFromRatingDelta(ratingDelta);
 
     const brokenOneVsOne = isLegacyBrokenOneVsOne(stats);
     const teammates = stats
@@ -227,17 +413,18 @@ function normalizeGame(document, playerId) {
         : 0,
       mapName: map?.attributes?.displayName || mapVersion?.attributes?.filename || "Mapgen / generated map",
       queueLabel: featuredMod?.attributes?.displayName || featuredMod?.attributes?.technicalName || "FAF",
-      queueCategory: inferQueueCategory(featuredMod, primaryRatingChange, stats),
+      queueCategory,
       validity: attrs.validity || "UNKNOWN",
-      ratingType: primaryRatingChange?.leaderboardTechnicalName || "unknown",
+      ratingType: normalizeLeaderboardName(primaryRatingChange?.leaderboardTechnicalName || "unknown"),
       ratingDelta: Number(ratingDelta.toFixed(2)),
       ratingBefore: displayedRating(primaryRatingChange?.meanBefore, primaryRatingChange?.deviationBefore),
       ratingAfter: displayedRating(primaryRatingChange?.meanAfter, primaryRatingChange?.deviationAfter),
-      playerOutcome: inferredOutcome,
+      playerOutcome: inferredOutcome === "DRAW" ? "DRAW" : (ratingOutcome || inferredOutcome),
+      apiPlayerOutcome: inferredOutcome,
       replayId: Number(resource.id),
       replayUrl: attrs.replayUrl || `https://replay.faforever.com/${resource.id}`,
       ratingChanges: selfStats.ratingChanges.map((entry) => ({
-        ratingType: entry.leaderboardTechnicalName || "unknown",
+        ratingType: normalizeLeaderboardName(entry.leaderboardTechnicalName || "unknown"),
         meanBefore: entry.meanBefore,
         meanAfter: entry.meanAfter,
         deviationBefore: entry.deviationBefore,
@@ -345,11 +532,12 @@ async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
   ]);
 
   const ratings = parseRatings(ratingsDoc);
+  const correctedGames = applyRatingOutcomeOverrides(games);
   onProgress?.({
     stage: "done",
     percent: 100,
-    fetchedGames: games.length,
-    message: `Loaded ${games.length} games. Building report...`
+    fetchedGames: correctedGames.length,
+    message: `Loaded ${correctedGames.length} games. Building report...`
   });
 
   const payload = {
@@ -362,13 +550,14 @@ async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
         ratings.map((entry) => [entry.technicalName, Math.round(entry.rating ?? ((entry.mean || 0) - 3 * (entry.deviation || 0)))])
       )
     },
-    games,
+    games: correctedGames,
     meta: {
       source: "official",
       note: "Live data from the authenticated FAF API.",
       ratings,
-      historyDepth: games.length,
+      historyDepth: correctedGames.length,
       cacheStatus: "live",
+      providerCacheVersion: OFFICIAL_CACHE_VERSION,
       lastFetchedAt: new Date().toISOString()
     }
   };
@@ -432,11 +621,11 @@ function createOfficialProvider() {
 
     async getPlayerReport(playerRef, { sessionState, onProgress, forceRefresh }) {
       const cacheState = getCacheState(playerRef);
-      const cachedPayload = cacheState.payload
+      const cachedPayload = cacheState.payload?.meta?.providerCacheVersion === OFFICIAL_CACHE_VERSION
         ? {
             fetchedAt: cacheState.payload.fetchedAt,
             player: cacheState.payload.player,
-            games: cacheState.payload.games,
+            games: applyRatingOutcomeOverrides(cacheState.payload.games),
             meta: cacheState.payload.meta
           }
         : null;
@@ -463,9 +652,9 @@ function createOfficialProvider() {
           });
           return withCachedMeta(cachedPayload, cacheState.stale ? "stale" : "fresh", cacheState.ageMs);
         }
-        throw providerError("No local cache is available, and FAF login is required to fetch this player.", {
+        throw providerError("No current local cache is available, and FAF login is required to fetch this player.", {
           statusCode: 401,
-          detail: "Log in with FAF, then try again. If a cached report exists later, this button will load it instantly."
+          detail: "Log in with FAF, then try again. Older cached reports are ignored because the legacy Ladder outcome rules changed."
         });
       }
 

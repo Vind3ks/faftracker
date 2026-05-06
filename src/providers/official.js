@@ -3,6 +3,7 @@ const { buildIncludedIndex, getRelationshipResource, getRelationshipResources } 
 const { getCacheState, writeCache } = require("../player-cache");
 
 const GAME_PAGE_CONCURRENCY = Math.max(1, Math.min(6, Number(process.env.FAF_GAME_PAGE_CONCURRENCY || 4)));
+const OFFICIAL_CACHE_VERSION = 2;
 
 function providerError(message, options = {}) {
   const error = new Error(message);
@@ -540,6 +541,7 @@ async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
       ratings,
       historyDepth: correctedGames.length,
       cacheStatus: "live",
+      providerCacheVersion: OFFICIAL_CACHE_VERSION,
       lastFetchedAt: new Date().toISOString()
     }
   };
@@ -603,7 +605,7 @@ function createOfficialProvider() {
 
     async getPlayerReport(playerRef, { sessionState, onProgress, forceRefresh }) {
       const cacheState = getCacheState(playerRef);
-      const cachedPayload = cacheState.payload
+      const cachedPayload = cacheState.payload?.meta?.providerCacheVersion === OFFICIAL_CACHE_VERSION
         ? {
             fetchedAt: cacheState.payload.fetchedAt,
             player: cacheState.payload.player,
@@ -634,9 +636,9 @@ function createOfficialProvider() {
           });
           return withCachedMeta(cachedPayload, cacheState.stale ? "stale" : "fresh", cacheState.ageMs);
         }
-        throw providerError("No local cache is available, and FAF login is required to fetch this player.", {
+        throw providerError("No current local cache is available, and FAF login is required to fetch this player.", {
           statusCode: 401,
-          detail: "Log in with FAF, then try again. If a cached report exists later, this button will load it instantly."
+          detail: "Log in with FAF, then try again. Older cached reports are ignored because the legacy Ladder outcome rules changed."
         });
       }
 

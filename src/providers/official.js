@@ -155,6 +155,22 @@ function inferOutcomeFromStats(selfStats, stats, options = {}) {
   const teamCount = new Set(stats.map((entry) => entry.team).filter((team) => team != null)).size;
   const knownOutcomes = stats.map((entry) => entry.outcome).filter((outcome) => outcome && outcome !== "UNKNOWN");
   const allResultsUnknown = stats.length > 0 && stats.every((entry) => !entry.outcome || entry.outcome === "UNKNOWN");
+  const hasConflictingOutcome = stats.some((entry) => entry.outcome === "CONFLICTING");
+
+if (
+  stats.length === 2 &&
+  (validity === "UNKNOWN_RESULT" || hasConflictingOutcome)
+) {
+  const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
+  if (scoreOutcome) {
+    return scoreOutcome;
+  }
+
+  const ratingOutcome = getTwoPlayerRatingOutcome(selfStats, stats);
+  if (ratingOutcome) {
+    return ratingOutcome;
+  }
+}
 
   if (queueCategory === "ladder_1v1" && allResultsUnknown) {
     const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
@@ -478,6 +494,22 @@ async function fetchAllGames(sessionState, playerId, onProgress) {
       break;
     }
   }
+  
+  console.log("FETCHED GAME DEBUG", {
+    totalFetchedGames: games.length,
+    first20Ids: games.slice(0, 20).map((g) => ({
+      id: g.id,
+      date: g.startedAt,
+      outcome: g.playerOutcome,
+      queue: g.queueCategory,
+    })),
+    last50Ids: games.slice(-50).map((g) => ({
+      id: g.id,
+      date: g.startedAt,
+      outcome: g.playerOutcome,
+      queue: g.queueCategory,
+    })),
+  });
 
   return games;
 }

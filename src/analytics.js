@@ -77,10 +77,19 @@ function getLeaderboardTotalGames(ratings, queueFilter) {
 
 function matchesQueueFilter(game, queueFilter) {
   const filter = normalizeQueueFilter(queueFilter);
+
   if (filter === "all") {
     return true;
   }
-  return normalizeQueueName(game.queueCategory) === filter || normalizeQueueName(game.ratingType) === filter;
+
+  const ratingType = normalizeQueueName(game.ratingType);
+  const queueCategory = normalizeQueueName(game.queueCategory);
+
+  if (ratingType && ratingType !== "unknown") {
+    return ratingType === filter;
+  }
+
+  return queueCategory === filter;
 }
 
 function isDecisiveGame(game) {
@@ -96,7 +105,19 @@ function isDrawGame(game) {
 }
 
 function isRankedGame(game) {
-  return hasKnownRatingMovement(game);
+  const ratingType = normalizeQueueName(game.ratingType);
+  const queueCategory = normalizeQueueName(game.queueCategory);
+
+  const queue =
+    ratingType && ratingType !== "unknown"
+      ? ratingType
+      : queueCategory;
+
+  return hasKnownRatingMovement(game)
+    || (
+      queue === "ladder_1v1" &&
+      isKnownResultGame(game)
+    );
 }
 
 function hasKnownRatingMovement(game) {
@@ -665,14 +686,48 @@ function buildPlayerReport(player, games, options = {}) {
   const allSortedGames = [...filteredGames].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
   const sortedGames = gameLimit ? allSortedGames.slice(0, gameLimit) : allSortedGames;
   const rankedGames = sortedGames.filter(isRankedGame);
-  const unrankedGames = sortedGames.filter((game) => !isRankedGame(game));
-  const ratingMovementGames = sortedGames.filter((game) => hasKnownRatingMovement(game));
-  const decisiveGames = sortedGames.filter((game) => game.playerOutcome === "WIN" || game.playerOutcome === "LOSS");
-  const rankedDecisiveGames = ratingMovementGames.filter((game) => game.playerOutcome === "WIN" || game.playerOutcome === "LOSS");
-  const drawGames = sortedGames.filter(isDrawGame);
-  const wins = rankedDecisiveGames.filter((game) => game.playerOutcome === "WIN").length;
-  const losses = rankedDecisiveGames.filter((game) => game.playerOutcome === "LOSS").length;
-  const recentRankedGames = ratingMovementGames.slice(0, 25);
+const unrankedGames = sortedGames.filter((game) => !isRankedGame(game));
+const ratingMovementGames = sortedGames.filter((game) => hasKnownRatingMovement(game));
+
+const isLadderFilter = queueFilter === "ladder_1v1";
+
+const statsGames = isLadderFilter
+  ? sortedGames.filter(isKnownResultGame)
+  : rankedGames.filter(
+      (game) =>
+        isKnownResultGame(game) ||
+        game.playerOutcome === "CONFLICTING"
+    );
+
+const conflictingGames = rankedGames.filter(
+  (game) => game.playerOutcome === "CONFLICTING"
+);
+
+const decisiveGames = statsGames.filter(
+  (game) =>
+    game.playerOutcome === "WIN" ||
+    game.playerOutcome === "LOSS"
+);
+
+const rankedDecisiveGames = rankedGames.filter(
+  (game) =>
+    game.playerOutcome === "WIN" ||
+    game.playerOutcome === "LOSS"
+);
+
+const drawGames = statsGames.filter(isDrawGame);
+
+const wins = decisiveGames.filter(
+  (game) => game.playerOutcome === "WIN"
+).length;
+
+const losses = decisiveGames.filter(
+  (game) => game.playerOutcome === "LOSS"
+).length;
+
+const unresolvedRankedGames = rankedGames.filter((game) => !isKnownResultGame(game)).length;
+const adjustedDraws = drawGames.length + unresolvedRankedGames;
+const recentRankedGames = ratingMovementGames.slice(0, 25);
   const recentRankedDecisiveGames = recentRankedGames.filter((game) => game.playerOutcome === "WIN" || game.playerOutcome === "LOSS");
 
   const opponents = new Map();
@@ -856,18 +911,24 @@ function buildPlayerReport(player, games, options = {}) {
   const dailyPerformance = buildDailyTimeline(sortedGames);
   const improvement = buildImprovementDetector(sortedGames, monthlyPerformance, dailyPerformance, mapTendencies, allOpponents);
   const coverage = buildCoverage(sortedGames);
+  
   const rankedGameCount = gameLimit
     ? rankedGames.length
     : (leaderboardTotalGames ?? rankedGames.length);
-  const unrankedGameCount = gameLimit
-    ? unrankedGames.length
-    : Math.max(0, sortedGames.length - rankedGameCount);
+  
+  const rawDraws = drawGames.length;
+  
   const missingLeaderboardGames = !gameLimit && leaderboardTotalGames != null
     ? Math.max(0, leaderboardTotalGames - rankedGames.length)
     : 0;
+  
+  const displayDraws = rawDraws + missingLeaderboardGames;
+  
+  const unrankedGameCount = unrankedGames.length;
+  
   if (missingLeaderboardGames) {
     coverage.notes.push(
-      `FAF leaderboard totals include ${leaderboardTotalGames} ${queueFilter} games, but ${missingLeaderboardGames} detailed game-history rows were not returned by the FAF game-history endpoint. Analytics use the ${rankedGames.length} loaded rows.`
+      `FAF leaderboard totals include ${leaderboardTotalGames} ${queueFilter} games, but ${missingLeaderboardGames} detailed game-history rows were not returned by the FAF game-history endpoint. Missing FAF-ranked games are counted as draws in the top-line W/L/D total so it aligns with FAF ranked totals.`
     );
   }
 
@@ -881,7 +942,8 @@ function buildPlayerReport(player, games, options = {}) {
       unrankedGames: unrankedGameCount,
       decisiveGames: decisiveGames.length,
       rankedDecisiveGames: rankedDecisiveGames.length,
-      draws: drawGames.length,
+      draws: displayDraws,
+      conflictingGames: conflictingGames.length,
       wins,
       losses,
       winRate: round(percent(wins, rankedDecisiveGames.length)),

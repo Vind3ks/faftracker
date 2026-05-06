@@ -241,8 +241,13 @@ function renderCards(report) {
   const streakButton = (streak, label) => streak.gameIds?.length
     ? `<button class="secondary stat-link" type="button" data-streak-filter="${escapeHtml(streak.gameIds.join(","))}" data-streak-label="${escapeHtml(`${label}, ${streak.monthRange}`)}">View replays</button>`
     : "";
+  
+    const loadedGamesValue = String(report.gameLimit || "all") === "all"
+    ? "All games"
+    : overview.totalGames;
+  
   const cards = [
-    { label: "Loaded games", value: overview.totalGames },
+    { label: "Loaded games", value: loadedGamesValue },
     { label: "Ranked games", value: rankedGames },
     { label: "Unranked games", value: unrankedGames },
     { label: "Draws", value: draws },
@@ -1118,7 +1123,7 @@ function renderImprovement(report) {
       body: renderPeriodLinks(improvement.bestMonths, "month", "Not enough monthly volume yet.", "bestMonths")
     },
     {
-      title: "The Tilt Zone",
+      title: "Worst Months",
       body: renderPeriodLinks(
         improvement.worstMonths,
         "month",
@@ -1132,7 +1137,7 @@ function renderImprovement(report) {
       body: renderPeriodLinks(improvement.bestDays || [], "day", "Not enough daily volume yet.", "bestDays")
     },
     {
-      title: "Rough Days",
+      title: "Worst Days",
       body: renderPeriodLinks(improvement.worstDays || [], "day", "No rough rated day stands out yet.", "worstDays")
     },
     {
@@ -1164,8 +1169,7 @@ function renderImprovement(report) {
 }
 
 function renderGameHistory() {
-  const ratingGames = gameHistoryState.filteredGames.filter((game) => hasRatingMovement(game));
-  const visibleGames = ratingGames.slice(0, gameHistoryState.visibleCount);
+  const visibleGames = gameHistoryState.filteredGames.slice(0, gameHistoryState.visibleCount);
   renderTable(
     elements.gamesTable,
     [
@@ -1181,7 +1185,7 @@ function renderGameHistory() {
       escapeHtml(displayQueueName(game)),
       escapeHtml(displayMapName(game.mapName)),
       `<span class="result ${game.playerOutcome === "WIN" ? "win" : game.playerOutcome === "LOSS" ? "loss" : game.playerOutcome === "DRAW" ? "draw" : ""}">${escapeHtml(game.playerOutcome)}</span>`,
-      escapeHtml(formatSigned(game.ratingDelta)),
+      escapeHtml(hasRatingMovement(game) ? formatSigned(game.ratingDelta) : "No rating data"),
       `<a href="${escapeHtml(game.replayUrl)}" target="_blank" rel="noreferrer">#${escapeHtml(game.replayId)}</a>`
     ]),
     "No game history yet."
@@ -1189,7 +1193,7 @@ function renderGameHistory() {
   if (currentReport?.coverage?.hiddenFromGameHistory) {
     elements.gamesTable.insertAdjacentHTML(
       "afterbegin",
-      `<p class="history-disclaimer">Game History shows only games with an actual rating gain or loss. ${escapeHtml(currentReport.coverage.hiddenFromGameHistory)} loaded games without rating movement are hidden here.</p>`
+      `<p class="history-disclaimer">Game History shows games with known win/loss/draw results. ${escapeHtml(currentReport.coverage.hiddenFromGameHistory)} loaded games without rating movement are hidden here.</p>`
     );
   }
   updateHistoryFilterUi();
@@ -1206,6 +1210,7 @@ function filterHistoryByMonth(month) {
 
 function filterHistoryByGameIds(rawIds, label) {
   const ids = new Set(String(rawIds || "").split(",").filter(Boolean));
+
   gameHistoryState.filteredGames = gameHistoryState.allGames.filter((game) => ids.has(String(game.id)));
   gameHistoryState.visibleCount = gameHistoryState.filteredGames.length;
   gameHistoryState.filterLabel = `Showing ${gameHistoryState.filteredGames.length} replays: ${label}`;
@@ -1308,20 +1313,31 @@ function renderReport(payload) {
   renderImprovement(report);
   renderTable(
     elements.ratingSummaryTable,
-    [{ label: "Queue" }, { label: "Games" }, { label: "Draws" }, { label: "Win %" }, { label: "Net" }, { label: "Avg" }],
+    [{ label: "Queue" }, { label: "Rating games" }, { label: "Draws" }, { label: "Win %" }, { label: "Net" }, { label: "Avg" }],
     report.ratingSummary
       .filter((row) => row.name && row.name !== "unknown" && row.name !== "no_rating_change" && Number(row.games || 0) > 0)
       .map((row) => [
-      escapeHtml(displayModeName(row.name)),
-      escapeHtml(row.games),
-      escapeHtml(row.draws || 0),
-      escapeHtml(formatPercent(row.winRate)),
-      escapeHtml(formatSigned(row.totalDelta)),
-      escapeHtml(formatSigned(row.averageDelta))
-    ]),
+        escapeHtml(displayModeName(row.name)),
+        escapeHtml(row.games),
+        escapeHtml(row.draws || 0),
+        escapeHtml(formatPercent(row.winRate)),
+        escapeHtml(formatSigned(row.totalDelta)),
+        escapeHtml(formatSigned(row.averageDelta))
+      ]),
     "No rating summary data yet."
   );
-  gameHistoryState.allGames = (report.allGames || []).filter((game) => hasRatingMovement(game));
+  
+  elements.ratingSummaryTable.insertAdjacentHTML(
+    "beforeend",
+    `<p class="history-disclaimer">Games without rating gain/loss data are excluded from this table.</p>`
+  );
+  gameHistoryState.allGames = (report.allGames || []).filter(
+    (game) =>
+      game.playerOutcome === "WIN" ||
+      game.playerOutcome === "LOSS" ||
+      game.playerOutcome === "DRAW"
+  );
+  
   gameHistoryState.filteredGames = [...gameHistoryState.allGames];
   gameHistoryState.visibleCount = Math.min(10, gameHistoryState.allGames.length);
   gameHistoryState.filterLabel = "";

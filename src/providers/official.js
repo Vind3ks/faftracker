@@ -494,22 +494,6 @@ async function fetchAllGames(sessionState, playerId, onProgress) {
       break;
     }
   }
-  
-  console.log("FETCHED GAME DEBUG", {
-    totalFetchedGames: games.length,
-    first20Ids: games.slice(0, 20).map((g) => ({
-      id: g.id,
-      date: g.startedAt,
-      outcome: g.playerOutcome,
-      queue: g.queueCategory,
-    })),
-    last50Ids: games.slice(-50).map((g) => ({
-      id: g.id,
-      date: g.startedAt,
-      outcome: g.playerOutcome,
-      queue: g.queueCategory,
-    })),
-  });
 
   return games;
 }

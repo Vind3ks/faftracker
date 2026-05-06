@@ -162,10 +162,10 @@ function buildCoverage(sortedGames) {
     withoutRatingMovement,
     hiddenFromGameHistory,
     notes: [
-      `The top W/L, win rate, recent form, and streak cards use only the ${ratingMovementGames} ${ratingMovementGameWord} with actual rating gain or loss.`,
-      `${hiddenFromGameHistory} games have no actual rating gain or loss data. They are hidden from Game History and excluded from rating charts, Rating Gain Summary, best/worst days and months, and map rating trends.`,
-      `${drawGames} games are draws. Draws are shown in the top cards, and excluded from W/L and streak calculations.`,
-      `${withoutKnownResult} games have no known win/loss/draw result. They are excluded from W/L and streak calculations.`
+      `The top W/L, win rate, recent form, and streak cards use games with known win/loss/draw results.`,
+      `${hiddenFromGameHistory} games have no actual rating gain or loss data. They are excluded from rating charts, Rating Gain Summary, best/worst days and months, teammate/opponent rating summaries, and map rating trends.`,
+      `${drawGames} games are draws. Draws are shown in the top cards, and excluded from W/L percentages and streak calculations.`,
+      `${withoutKnownResult} games have no known win/loss/draw result. They are excluded from W/L percentages and streak calculations.`
     ].filter((note) => !note.startsWith("0 games"))
   };
 }
@@ -781,6 +781,7 @@ const recentRankedGames = ratingMovementGames.slice(0, 25);
       for (const ratingEntry of getRatingEntries(game)) {
         const delta = Number(ratingEntry.delta);
         if (ratingEntry.ratingType === "unknown" || !isRealNumber(ratingEntry.delta) || delta === 0) {
+          ratingBucket.hiddenGames += 1;
           continue;
         }
         const ratingKey = ratingEntry.ratingType;
@@ -899,7 +900,8 @@ const recentRankedGames = ratingMovementGames.slice(0, 25);
       draws: entry.draws,
       winRate: round(percent(entry.wins, entry.wins + entry.losses)),
       totalDelta: round(entry.totalDelta, 2),
-      averageDelta: round(entry.totalDelta / Math.max(entry.games, 1), 2)
+      averageDelta: round(entry.totalDelta / Math.max(entry.games, 1), 2),
+      ratedGames: entry.games
     }));
 
   const overallRatingDelta = round(
@@ -950,8 +952,8 @@ const recentRankedGames = ratingMovementGames.slice(0, 25);
       recentRankedGames: recentRankedGames.length,
       recentWinRate: round(percent(recentRankedDecisiveGames.filter((game) => game.playerOutcome === "WIN").length, recentRankedDecisiveGames.length)),
       averageDurationMinutes: round(average(sortedGames.map((game) => game.durationMinutes))),
-      streak: computeStreak(ratingMovementGames),
-      maxStreaks: computeMaxStreaks(ratingMovementGames),
+      streak: computeStreak(statsGames),
+      maxStreaks: computeMaxStreaks(statsGames),
       totalRatingDelta: overallRatingDelta
     },
     queueFilter,
@@ -964,7 +966,9 @@ const recentRankedGames = ratingMovementGames.slice(0, 25);
     mapTendencies,
     ratingSummary,
     coverage,
-    allGames: ratingMovementGames.map(toHistoryGame),
+    allGames: sortedGames
+      .filter(isKnownResultGame)
+      .map(toHistoryGame),
     relationshipGames: sortedGames
       .filter((game) => isKnownResultGame(game) && getRatingEntries(game).some((entry) => isRealNumber(entry.delta) && Number(entry.delta) !== 0))
       .map(toRelationshipGame),

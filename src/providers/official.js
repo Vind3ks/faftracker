@@ -128,7 +128,11 @@ function inferOutcomeFromStats(selfStats, stats, options = {}) {
     }
   }
 
-  if (validity === "TOO_MANY_DESYNCS" && knownOutcomes.length) {
+  if (
+    queueCategory === "ladder_1v1" &&
+    validity === "TOO_MANY_DESYNCS" &&
+    allResultsUnknown
+  ) {
     const scoreOutcome = getTwoPlayerScoreOutcome(selfStats, stats);
     if (scoreOutcome === "DRAW") {
       return "DRAW";

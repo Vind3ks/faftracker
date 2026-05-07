@@ -129,10 +129,58 @@ function summarizeQueues(rawQueues) {
 function safeLobbyUrlInfo(rawUrl) {
   try {
     const url = new URL(rawUrl);
-    return { protocol: url.protocol, host: url.host, pathname: url.pathname || "/", hasQuery: Boolean(url.search) };
+    return {
+      protocol: url.protocol,
+      host: url.host,
+      hostname: url.hostname,
+      port: url.port || null,
+      pathname: url.pathname || "/",
+      hasQuery: Boolean(url.search)
+    };
   } catch (error) {
-    return { protocol: "unknown", host: "unknown", pathname: "unknown", hasQuery: false };
+    return { protocol: "unknown", host: "unknown", hostname: "unknown", port: null, pathname: "unknown", hasQuery: false };
   }
+}
+
+function extractLobbyAccessUrl(payload) {
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (/^(wss?|https?):\/\//i.test(trimmed)) return trimmed;
+  }
+
+  const candidates = [
+    payload?.accessUrl,
+    payload?.access_url,
+    payload?.url,
+    payload?.data?.accessUrl,
+    payload?.data?.access_url,
+    payload?.data?.url,
+    payload?.data?.attributes?.accessUrl,
+    payload?.data?.attributes?.access_url,
+    payload?.data?.attributes?.["access-url"],
+    payload?.attributes?.accessUrl,
+    payload?.attributes?.access_url,
+    payload?.attributes?.["access-url"]
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && /^(wss?|https?):\/\//i.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function sanitizeLobbyAccessPayload(payload) {
+  if (typeof payload === "string") {
+    return /^(wss?|https?):\/\//i.test(payload.trim()) ? safeLobbyUrlInfo(payload.trim()) : { type: "string", length: payload.length };
+  }
+  if (!payload || typeof payload !== "object") return { type: typeof payload };
+  const topLevelKeys = Object.keys(payload).slice(0, 20);
+  const dataKeys = payload.data && typeof payload.data === "object" ? Object.keys(payload.data).slice(0, 20) : [];
+  const attributeKeys = payload.data?.attributes && typeof payload.data.attributes === "object" ? Object.keys(payload.data.attributes).slice(0, 20) : [];
+  return { type: "object", topLevelKeys, dataKeys, attributeKeys };
 }
 
 function decodeLobbyLine(data) {
@@ -201,7 +249,8 @@ async function connectLobby(rawUrl) {
       resolve({
         sendJson(payload) {
           if (socket.readyState !== WebSocket.OPEN) throw makeCloseError("send");
-          socket.send(Buffer.from(`${JSON.stringify(payload)}\n`, "utf8"), { binary: true });
+          // The official Java client uses sendString(json + "\\n"), i.e. text frames.
+          socket.send(`${JSON.stringify(payload)}\n`);
         },
         readText(readTimeoutMs = LOBBY_TIMEOUT_MS, phase = "read") {
           if (messages.length) return Promise.resolve(messages.shift());
@@ -302,7 +351,18 @@ async function fetchLobbyAccess(sessionState) {
       hint: "Log in with FAF again or paste a fresh access token from the FAF client."
     });
   }
-  return payload?.accessUrl || payload?.access_url || payload?.url || DEFAULT_LOBBY_URL;
+
+  const accessUrl = extractLobbyAccessUrl(payload);
+  if (accessUrl) return accessUrl;
+
+  if (process.env.FAF_ALLOW_LOBBY_URL_FALLBACK === "1") return DEFAULT_LOBBY_URL;
+
+  throw createError("FAF lobby access response did not contain a usable websocket URL.", {
+    statusCode: 502,
+    phase: "lobby-access-parse",
+    detail: JSON.stringify(sanitizeLobbyAccessPayload(payload)),
+    hint: "The /lobby/access response shape is different than expected; this diagnostic lists only keys, not token values."
+  });
 }
 
 function makeUniqueId(sessionId, token) {

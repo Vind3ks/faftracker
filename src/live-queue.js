@@ -137,6 +137,7 @@ function safeLobbyUrlInfo(rawUrl) {
 
 function decodeLobbyLine(data) {
   if (Buffer.isBuffer(data)) return data.toString("utf8");
+  if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
   return String(data || "");
 }
@@ -200,7 +201,7 @@ async function connectLobby(rawUrl) {
       resolve({
         sendJson(payload) {
           if (socket.readyState !== WebSocket.OPEN) throw makeCloseError("send");
-          socket.send(`${JSON.stringify(payload)}\n`);
+          socket.send(Buffer.from(`${JSON.stringify(payload)}\n`, "utf8"), { binary: true });
         },
         readText(readTimeoutMs = LOBBY_TIMEOUT_MS, phase = "read") {
           if (messages.length) return Promise.resolve(messages.shift());

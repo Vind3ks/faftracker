@@ -300,7 +300,7 @@ async function requestMatchmakerInfo(sessionState) {
     await waitForMessage(connection, "auth", (message) => message?.command === "welcome" || message?.me);
 
     connection.sendJson({ command: "matchmaker_info" });
-    return waitForMessage(connection, "matchmaker_info", (message) => message?.command === "matchmaker_info" && Array.isArray(message.queues));
+    return await waitForMessage(connection, "matchmaker_info", (message) => message?.command === "matchmaker_info" && Array.isArray(message.queues));
   } finally {
     connection.close();
   }

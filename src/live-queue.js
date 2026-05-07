@@ -128,11 +128,14 @@ function summarizeQueues(rawQueues) {
 }
 
 function normalizeLobbyUrl(value) {
-  return String(value || FALLBACK_LOBBY_URL)
+  const raw = String(value || FALLBACK_LOBBY_URL)
     .trim()
     .replace(/^http:/i, "ws:")
-    .replace(/^https:/i, "wss:")
-    .replace("?verify", "/?verify");
+    .replace(/^https:/i, "wss:");
+
+  const url = new URL(raw);
+  url.pathname = url.searchParams.has("verify") ? "/" : (url.pathname || "/").replace(/\/{2,}/g, "/");
+  return url.toString();
 }
 
 function safeUrlInfo(value) {

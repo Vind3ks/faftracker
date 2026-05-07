@@ -5,7 +5,7 @@ const { fafRequest } = require("./faf-client");
 
 const DEFAULT_LOBBY_URL = process.env.FAF_LOBBY_WS_URL || "wss://lobby.faforever.com/";
 const LOBBY_TIMEOUT_MS = Number(process.env.FAF_LOBBY_TIMEOUT_MS || 15000);
-const USER_AGENT = process.env.FAF_LOBBY_USER_AGENT || "downlords-faf-client";
+const USER_AGENT = process.env.FAF_LOBBY_USER_AGENT || "faf-client";
 const CLIENT_VERSION = process.env.FAF_LOBBY_CLIENT_VERSION || "2024.12.0";
 
 const QUEUE_DEFINITIONS = [
@@ -126,6 +126,16 @@ function summarizeQueues(rawQueues) {
   });
 }
 
+function normalizeLobbyUrl(rawUrl) {
+  return String(rawUrl || DEFAULT_LOBBY_URL)
+    .trim()
+    .replace(/^http:/i, "ws:")
+    .replace(/^https:/i, "wss:")
+    // FAF Python client workaround for QTBUG-120492: the lobby access URL can be
+    // returned as wss://host?verify=..., but the websocket endpoint expects /?verify=...
+    .replace("?verify", "/?verify");
+}
+
 function safeLobbyUrlInfo(rawUrl) {
   try {
     const url = new URL(rawUrl);
@@ -145,7 +155,7 @@ function safeLobbyUrlInfo(rawUrl) {
 function extractLobbyAccessUrl(payload) {
   if (typeof payload === "string") {
     const trimmed = payload.trim();
-    if (/^(wss?|https?):\/\//i.test(trimmed)) return trimmed;
+    if (/^(wss?|https?):\/\//i.test(trimmed)) return normalizeLobbyUrl(trimmed);
   }
 
   const candidates = [
@@ -165,7 +175,7 @@ function extractLobbyAccessUrl(payload) {
 
   for (const candidate of candidates) {
     if (typeof candidate === "string" && /^(wss?|https?):\/\//i.test(candidate.trim())) {
-      return candidate.trim();
+      return normalizeLobbyUrl(candidate);
     }
   }
 
@@ -174,7 +184,7 @@ function extractLobbyAccessUrl(payload) {
 
 function sanitizeLobbyAccessPayload(payload) {
   if (typeof payload === "string") {
-    return /^(wss?|https?):\/\//i.test(payload.trim()) ? safeLobbyUrlInfo(payload.trim()) : { type: "string", length: payload.length };
+    return /^(wss?|https?):\/\//i.test(payload.trim()) ? safeLobbyUrlInfo(normalizeLobbyUrl(payload.trim())) : { type: "string", length: payload.length };
   }
   if (!payload || typeof payload !== "object") return { type: typeof payload };
   const topLevelKeys = Object.keys(payload).slice(0, 20);
@@ -191,7 +201,7 @@ function decodeLobbyLine(data) {
 }
 
 async function connectLobby(rawUrl) {
-  const wsUrl = String(rawUrl || DEFAULT_LOBBY_URL).replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
+  const wsUrl = normalizeLobbyUrl(rawUrl || DEFAULT_LOBBY_URL);
   const urlInfo = safeLobbyUrlInfo(wsUrl);
 
   return new Promise((resolve, reject) => {
@@ -249,8 +259,8 @@ async function connectLobby(rawUrl) {
       resolve({
         sendJson(payload) {
           if (socket.readyState !== WebSocket.OPEN) throw makeCloseError("send");
-          // The official Java client uses sendString(json + "\\n"), i.e. text frames.
-          socket.send(`${JSON.stringify(payload)}\n`);
+          // FAF Python client sends binary websocket messages containing newline JSON.
+          socket.send(Buffer.from(`${JSON.stringify(payload)}\n`, "utf8"), { binary: true });
         },
         readText(readTimeoutMs = LOBBY_TIMEOUT_MS, phase = "read") {
           if (messages.length) return Promise.resolve(messages.shift());
@@ -329,7 +339,7 @@ async function waitForMessage(connection, phase, predicate, timeoutMs = LOBBY_TI
 
 async function fetchLobbyAccess(sessionState) {
   await fafRequest(sessionState, "/me");
-  if (process.env.FAF_LOBBY_WS_URL) return process.env.FAF_LOBBY_WS_URL;
+  if (process.env.FAF_LOBBY_WS_URL) return normalizeLobbyUrl(process.env.FAF_LOBBY_WS_URL);
   const response = await fetch(`${sessionState.config.userBaseUrl.replace(/\/+$/g, "")}/lobby/access`, {
     headers: {
       Accept: "application/json",
@@ -355,7 +365,7 @@ async function fetchLobbyAccess(sessionState) {
   const accessUrl = extractLobbyAccessUrl(payload);
   if (accessUrl) return accessUrl;
 
-  if (process.env.FAF_ALLOW_LOBBY_URL_FALLBACK === "1") return DEFAULT_LOBBY_URL;
+  if (process.env.FAF_ALLOW_LOBBY_URL_FALLBACK === "1") return normalizeLobbyUrl(DEFAULT_LOBBY_URL);
 
   throw createError("FAF lobby access response did not contain a usable websocket URL.", {
     statusCode: 502,

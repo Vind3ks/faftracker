@@ -9,8 +9,6 @@
 - top teammates
 - map performance
 
-It is built around a provider layer so we can keep evolving the UI and analytics even while FAF access rules change.
-
 ## Run it
 
 ```bash

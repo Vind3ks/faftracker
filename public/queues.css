@@ -1,0 +1,153 @@
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.secondary-link {
+  background: rgba(5, 14, 22, 0.42);
+  color: var(--text);
+}
+
+.queue-hero .hero-copy {
+  max-width: 760px;
+}
+
+.queue-controls .auth-bar {
+  margin-bottom: 12px;
+}
+
+.queue-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.queue-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.queue-toggle input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.queue-explainer p {
+  margin-bottom: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.queue-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.queue-card {
+  margin-bottom: 0;
+}
+
+.queue-card-header,
+.queue-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.queue-card-header h2 {
+  margin-bottom: 0;
+  font-size: 1.35rem;
+}
+
+.queue-count {
+  min-width: 104px;
+  padding: 12px 14px;
+  border: 1px solid rgba(107, 227, 194, 0.26);
+  border-radius: 8px;
+  background: rgba(107, 227, 194, 0.08);
+  text-align: center;
+}
+
+.queue-count strong {
+  display: block;
+  color: var(--accent);
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.queue-count span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.queue-meta-row {
+  justify-content: flex-start;
+  margin: 14px 0;
+  color: var(--muted);
+}
+
+.queue-meta-row span {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(5, 14, 22, 0.35);
+}
+
+.queue-meta-row strong {
+  color: var(--text);
+}
+
+.match-chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 2px 4px 2px 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.match-chip.tight {
+  border-color: rgba(137, 240, 184, 0.38);
+  background: rgba(137, 240, 184, 0.08);
+}
+
+.match-chip.wide {
+  border-color: rgba(240, 196, 106, 0.38);
+  background: rgba(240, 196, 106, 0.08);
+}
+
+.muted-cell {
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .queue-toolbar,
+  .queue-card-header,
+  .queue-meta-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .queue-count {
+    width: 100%;
+  }
+}

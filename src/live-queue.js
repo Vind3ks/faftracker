@@ -6,8 +6,8 @@ const { URL } = require("url");
 const { fafRequest } = require("./faf-client");
 
 const DEFAULT_LOBBY_URL = process.env.FAF_LOBBY_WS_URL || "wss://lobby.faforever.com/";
-const LOBBY_TIMEOUT_MS = Number(process.env.FAF_LOBBY_TIMEOUT_MS || 12000);
-const USER_AGENT = "faftracker-live-queue/0.1";
+const LOBBY_TIMEOUT_MS = Number(process.env.FAF_LOBBY_TIMEOUT_MS || 15000);
+const USER_AGENT = "faftracker-live-queue/0.2";
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 const QUEUE_DEFINITIONS = [
@@ -33,14 +33,10 @@ function findQueueDefinition(name) {
 }
 
 function normalizeRange(range) {
-  if (!Array.isArray(range) || range.length < 2) {
-    return null;
-  }
+  if (!Array.isArray(range) || range.length < 2) return null;
   const first = Number(range[0]);
   const second = Number(range[1]);
-  if (!Number.isFinite(first) || !Number.isFinite(second)) {
-    return null;
-  }
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
   return first <= second ? [first, second] : [second, first];
 }
 
@@ -165,10 +161,9 @@ function parseHeaders(rawHeaders) {
   const headers = new Map();
   for (const line of lines) {
     const colonIndex = line.indexOf(":");
-    if (colonIndex === -1) {
-      continue;
+    if (colonIndex !== -1) {
+      headers.set(line.slice(0, colonIndex).trim().toLowerCase(), line.slice(colonIndex + 1).trim());
     }
-    headers.set(line.slice(0, colonIndex).trim().toLowerCase(), line.slice(colonIndex + 1).trim());
   }
   return { statusLine, headers };
 }
@@ -191,6 +186,7 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
     let handshakeDone = false;
     let handshakeBuffer = Buffer.alloc(0);
     let frameBuffer = Buffer.alloc(0);
+    let lineBuffer = "";
     const messages = [];
     const waiters = [];
     let settled = false;
@@ -204,9 +200,7 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
     }, timeoutMs);
 
     function fail(error) {
-      if (settled) {
-        return;
-      }
+      if (settled) return;
       settled = true;
       clearTimeout(timeout);
       socket.destroy();
@@ -214,11 +208,22 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
     }
 
     function pushMessage(message) {
+      const trimmed = String(message || "").trim();
+      if (!trimmed) return;
       const waiter = waiters.shift();
       if (waiter) {
-        waiter.resolve(message);
+        waiter.resolve(trimmed);
       } else {
-        messages.push(message);
+        messages.push(trimmed);
+      }
+    }
+
+    function pushTextPayload(text) {
+      lineBuffer += text;
+      const lines = lineBuffer.split(/\n/);
+      lineBuffer = lines.pop() || "";
+      for (const line of lines) {
+        pushMessage(line);
       }
     }
 
@@ -265,7 +270,7 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
         } else if (opcode === 0x9) {
           socket.write(encodeWebSocketFrame(payload, 0xA));
         } else if (opcode === 0x1) {
-          pushMessage(payload.toString("utf8"));
+          pushTextPayload(payload.toString("utf8"));
         }
       }
     }
@@ -289,6 +294,10 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
     socket.once(secure ? "secureConnect" : "connect", sendHandshake);
     socket.on("error", (error) => fail(createError(`Unable to connect to FAF lobby: ${error.message}`, { statusCode: 502 })));
     socket.on("close", () => {
+      if (lineBuffer.trim()) {
+        pushMessage(lineBuffer);
+        lineBuffer = "";
+      }
       while (waiters.length) {
         waiters.shift().reject(createError("FAF lobby connection closed before a response was received.", { statusCode: 502 }));
       }
@@ -297,9 +306,7 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
       if (!handshakeDone) {
         handshakeBuffer = Buffer.concat([handshakeBuffer, chunk]);
         const headerEnd = handshakeBuffer.indexOf("\r\n\r\n");
-        if (headerEnd === -1) {
-          return;
-        }
+        if (headerEnd === -1) return;
         const rawHeaders = handshakeBuffer.subarray(0, headerEnd).toString("utf8");
         const remaining = handshakeBuffer.subarray(headerEnd + 4);
         const { statusLine, headers } = parseHeaders(rawHeaders);
@@ -320,12 +327,10 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
         }
         resolve({
           sendJson(payload) {
-            socket.write(encodeWebSocketFrame(JSON.stringify(payload)));
+            socket.write(encodeWebSocketFrame(`${JSON.stringify(payload)}\n`));
           },
           readText(readTimeoutMs = timeoutMs) {
-            if (messages.length) {
-              return Promise.resolve(messages.shift());
-            }
+            if (messages.length) return Promise.resolve(messages.shift());
             return new Promise((readResolve, readReject) => {
               const waiter = {
                 resolve(message) {
@@ -339,9 +344,7 @@ function connectWebSocket(rawUrl, timeoutMs = LOBBY_TIMEOUT_MS) {
               };
               const readTimeout = setTimeout(() => {
                 const waiterIndex = waiters.indexOf(waiter);
-                if (waiterIndex >= 0) {
-                  waiters.splice(waiterIndex, 1);
-                }
+                if (waiterIndex >= 0) waiters.splice(waiterIndex, 1);
                 readReject(createError("Timed out waiting for FAF lobby response.", { statusCode: 504 }));
               }, readTimeoutMs);
               waiters.push(waiter);
@@ -390,18 +393,14 @@ async function waitForMessage(connection, predicate, timeoutMs = LOBBY_TIMEOUT_M
     if (message?.command === "login_failed") {
       throw createError("FAF lobby login failed.", { statusCode: 401, detail: message.text || null });
     }
-    if (predicate(message)) {
-      return message;
-    }
+    if (predicate(message)) return message;
   }
   throw createError("Timed out waiting for the FAF lobby snapshot.", { statusCode: 504 });
 }
 
 async function fetchLobbyAccess(sessionState) {
   await fafRequest(sessionState, "/me");
-  if (process.env.FAF_LOBBY_WS_URL) {
-    return process.env.FAF_LOBBY_WS_URL;
-  }
+  if (process.env.FAF_LOBBY_WS_URL) return process.env.FAF_LOBBY_WS_URL;
   const response = await fetch(`${sessionState.config.userBaseUrl.replace(/\/+$/g, "")}/lobby/access`, {
     headers: {
       Accept: "application/json",
@@ -443,6 +442,7 @@ async function requestMatchmakerInfo(sessionState) {
       throw createError("FAF lobby returned an invalid session id.", { statusCode: 502 });
     }
     connection.sendJson({ command: "auth", token: sessionState.tokenSet.accessToken, session: sessionId, unique_id: makeUniqueId(sessionId, sessionState.tokenSet.accessToken) });
+    await waitForMessage(connection, (message) => message?.me || message?.command === "welcome", LOBBY_TIMEOUT_MS);
     connection.sendJson({ command: "matchmaker_info" });
     return await waitForMessage(connection, (message) => message?.command === "matchmaker_info" && Array.isArray(message.queues), LOBBY_TIMEOUT_MS);
   } finally {

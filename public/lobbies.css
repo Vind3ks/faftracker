@@ -1,0 +1,170 @@
+.compact-hero {
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.top-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.top-nav a {
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.top-nav a[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.controls-panel,
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.control-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+
+.stat-card span,
+.team-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.5rem;
+}
+
+.lobbies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 18px;
+}
+
+.lobby-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lobby-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lobby-header h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+}
+
+.lobby-count {
+  min-width: 76px;
+  text-align: right;
+}
+
+.lobby-count strong {
+  font-size: 1.7rem;
+}
+
+.lobby-count span {
+  color: var(--muted);
+}
+
+.lobby-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.lobby-meta span {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.lobby-meta .locked {
+  color: #ffd27d;
+}
+
+.teams-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.team-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.players-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.player-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 9px 5px 5px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.player-chip:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-chip img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.empty-state,
+.empty {
+  color: var(--muted);
+}
+
+.tiny {
+  font-size: 0.86rem;
+}
+
+@media (max-width: 720px) {
+  .summary-row,
+  .lobbies-grid {
+    grid-template-columns: 1fr;
+  }
+}

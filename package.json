@@ -9,5 +9,8 @@
   "scripts": {
     "start": "node server-queues.js",
     "dev": "node server-queues.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   }
 }

@@ -177,7 +177,8 @@ async function refreshQueues() {
   } catch (error) {
     const detail = error.payload?.detail ? ` ${error.payload.detail}` : "";
     const hint = error.payload?.hint ? ` ${error.payload.hint}` : "";
-    setMessage(`${error.message}.${detail}${hint}`.trim(), "bad");
+    const phase = error.payload?.phase ? ` Phase: ${error.payload.phase}.` : "";
+    setMessage(`${error.message}.${phase}${detail}${hint}`.trim(), "bad");
   } finally {
     setLoading(false);
   }
@@ -197,4 +198,4 @@ elements.refreshButton.addEventListener("click", refreshQueues);
 elements.autoRefreshInput.addEventListener("change", syncAutoRefresh);
 
 syncAuthStatus();
-refreshQueues();
+setMessage("This page logs into the FAF lobby as your account when you press Refresh queues. FAF only allows one active lobby connection per account, so do not refresh while your FAF client is open on the same account.", "muted");

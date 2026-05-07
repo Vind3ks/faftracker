@@ -24,6 +24,7 @@ const {
   updateConfig
 } = require("./src/faf-client");
 const { getLiveQueueSnapshot } = require("./src/live-queue");
+const { getLiveLobbiesSnapshot } = require("./src/live-lobbies");
 const { createOfficialProvider } = require("./src/providers/official");
 const { createSampleProvider } = require("./src/providers/sample");
 
@@ -76,7 +77,7 @@ function applySecurityHeaders(req, res) {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https://api.dicebear.com; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
   if (isHttps(req)) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 }
 
@@ -118,6 +119,10 @@ function readBody(req) {
 function parseJsonBody(raw) { try { return JSON.parse(raw || "{}"); } catch (error) { const parseError = new Error("Request body must be valid JSON."); parseError.statusCode = 400; throw parseError; } }
 function buildReportResponse(browserSession, queueFilter, gameLimit) { const payload = browserSession.reportPayload; const report = buildPlayerReport(payload.player, payload.games, { queueFilter, gameLimit, ratings: payload.meta?.ratings }); return { provider: payload.provider || "official", providerMeta: payload.meta, player: payload.player, queueFilter, gameLimit: report.gameLimit, report }; }
 
+function safeLobbyError(error) {
+  return { error: error.message, detail: error.detail || null, hint: error.hint || null, phase: error.phase || null, lobbyUrl: error.lobbyUrl || null, closeCode: error.closeCode || null, closeReason: error.closeReason || null };
+}
+
 async function handleAuthCallback(req, res, url, sessionState) {
   if (url.searchParams.get("error")) { clearSession(sessionState); res.writeHead(302, { Location: "/?auth=error" }); res.end(); return; }
   const code = url.searchParams.get("code");
@@ -158,18 +163,12 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/queues/live") {
     try { return sendJson(res, 200, await getLiveQueueSnapshot(sessionState)); }
-    catch (error) {
-      if (sessionState.tokenSet && isAuthFailure(error)) clearSession(sessionState);
-      return sendJson(res, error.statusCode || 502, {
-        error: error.message,
-        detail: error.detail || null,
-        hint: error.hint || null,
-        phase: error.phase || null,
-        lobbyUrl: error.lobbyUrl || null,
-        closeCode: error.closeCode || null,
-        closeReason: error.closeReason || null
-      });
-    }
+    catch (error) { if (sessionState.tokenSet && isAuthFailure(error)) clearSession(sessionState); return sendJson(res, error.statusCode || 502, safeLobbyError(error)); }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/lobbies/live") {
+    try { return sendJson(res, 200, await getLiveLobbiesSnapshot(sessionState)); }
+    catch (error) { if (sessionState.tokenSet && isAuthFailure(error)) clearSession(sessionState); return sendJson(res, error.statusCode || 502, safeLobbyError(error)); }
   }
 
   if (req.method === "GET" && url.pathname === "/api/report/current") { if (!browserSession.reportPayload) return sendJson(res, 404, { error: "No loaded report is available yet.", detail: "Load a player report first, then queue changes can update instantly." }); return sendJson(res, 200, buildReportResponse(browserSession, url.searchParams.get("queue") || "all", url.searchParams.get("gameLimit") || "all")); }

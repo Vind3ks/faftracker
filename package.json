@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server-queues.js",
+    "dev": "node server-queues.js"
   }
 }

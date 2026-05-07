@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live Queue Inspector · FAF Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=20260505-restored" />
+    <link rel="stylesheet" href="/queues.css?v=20260507-live-queue" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero queue-hero">
+        <p class="eyebrow">Forged Alliance Forever</p>
+        <h1>Live Queue Inspector</h1>
+        <p class="hero-copy">
+          See the public live matchmaker snapshot for 1v1, 2v2, 3v3, and 4v4: player counts,
+          approximate rating bands, queue pop timing, and which searches look compatible.
+        </p>
+        <div class="hero-actions">
+          <a class="button-link secondary-link" href="/">Back to player tracker</a>
+        </div>
+      </header>
+
+      <section class="panel controls queue-controls">
+        <div class="auth-bar">
+          <div>
+            <p class="panel-label">FAF Account</p>
+            <p id="authSummary" class="status-pill neutral">Checking session</p>
+          </div>
+          <div class="auth-actions">
+            <a id="loginButton" class="button-link" href="/api/auth/login">Log in with FAF</a>
+            <button id="refreshButton" class="secondary" type="button">Refresh queues</button>
+          </div>
+        </div>
+
+        <div class="queue-toolbar">
+          <label class="queue-toggle">
+            <input id="autoRefreshInput" type="checkbox" />
+            <span>Auto refresh every 15 seconds</span>
+          </label>
+          <p id="lastUpdated" class="status-pill neutral">Not loaded yet</p>
+        </div>
+      </section>
+
+      <section id="queueMessage" class="panel muted">
+        Log in with FAF or paste an access token on the tracker page, then refresh this view.
+      </section>
+
+      <section class="panel panel-accent queue-explainer">
+        <h2>What this can and cannot show</h2>
+        <p>
+          FAF’s lobby exposes fuzzy matchmaker search bands and queue counts, not exact player names or IDs.
+          The rows below are therefore shown as Search #1, Search #2, and so on. “Can match” is an estimate
+          based on overlapping rating bands; the server still decides with its real TrueSkill quality calculation.
+        </p>
+      </section>
+
+      <section id="queueGrid" class="queue-grid" aria-live="polite"></section>
+    </div>
+
+    <script src="/queues.js?v=20260507-live-queue"></script>
+  </body>
+</html>

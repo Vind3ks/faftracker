@@ -1,6 +1,5 @@
 const crypto = require("crypto");
 const WebSocket = require("ws");
-
 const { fafRequest } = require("./faf-client");
 
 const LOBBY_TIMEOUT_MS = Number(process.env.FAF_LOBBY_TIMEOUT_MS || 15000);
@@ -21,21 +20,12 @@ function makeError(message, extra = {}) {
   return error;
 }
 
-function normalizeQueueName(value) {
-  return String(value || "").trim().toLowerCase().replaceAll("-", "_");
-}
-
-function queueDef(name) {
-  const normalized = normalizeQueueName(name);
-  return QUEUES.find((queue) => queue.aliases.includes(normalized));
-}
-
 function normalizeRange(range) {
   if (!Array.isArray(range) || range.length < 2) return null;
-  const first = Number(range[0]);
-  const second = Number(range[1]);
-  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
-  return first <= second ? [first, second] : [second, first];
+  const a = Number(range[0]);
+  const b = Number(range[1]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return a <= b ? [a, b] : [b, a];
 }
 
 function rangesOverlap(left, right) {
@@ -52,6 +42,15 @@ function midpoint(range) {
 function seconds(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null;
+}
+
+function normalizeQueueName(value) {
+  return String(value || "").trim().toLowerCase().replaceAll("-", "_");
+}
+
+function queueDef(name) {
+  const normalized = normalizeQueueName(name);
+  return QUEUES.find((queue) => queue.aliases.includes(normalized));
 }
 
 function buildSearches(rawQueue) {
@@ -132,7 +131,6 @@ function normalizeLobbyUrl(value) {
     .trim()
     .replace(/^http:/i, "ws:")
     .replace(/^https:/i, "wss:");
-
   const url = new URL(raw);
   url.pathname = url.searchParams.has("verify") ? "/" : (url.pathname || "/").replace(/\/{2,}/g, "/");
   return url.toString();
@@ -141,29 +139,25 @@ function normalizeLobbyUrl(value) {
 function safeUrlInfo(value) {
   try {
     const url = new URL(value);
-    return {
-      protocol: url.protocol,
-      host: url.host,
-      pathname: url.pathname || "/",
-      hasQuery: Boolean(url.search)
-    };
+    return { protocol: url.protocol, host: url.host, pathname: url.pathname || "/", hasQuery: Boolean(url.search) };
   } catch {
     return { protocol: "unknown", host: "unknown", pathname: "unknown", hasQuery: false };
   }
 }
 
 function getAccessUrl(payload) {
-  if (typeof payload === "string" && /^(wss?|https?):\/\//i.test(payload.trim())) {
-    return normalizeLobbyUrl(payload);
-  }
-  const candidates = [
+  const candidates = typeof payload === "string" ? [payload] : [
     payload?.accessUrl,
     payload?.access_url,
     payload?.url,
+    payload?.data?.accessUrl,
+    payload?.data?.access_url,
+    payload?.data?.url,
     payload?.data?.attributes?.accessUrl,
     payload?.data?.attributes?.access_url,
     payload?.data?.attributes?.["access-url"]
   ];
+
   for (const candidate of candidates) {
     if (typeof candidate === "string" && /^(wss?|https?):\/\//i.test(candidate.trim())) {
       return normalizeLobbyUrl(candidate);
@@ -186,13 +180,11 @@ async function fetchLobbyAccess(sessionState) {
   await fafRequest(sessionState, "/me");
   if (process.env.FAF_LOBBY_WS_URL) return normalizeLobbyUrl(process.env.FAF_LOBBY_WS_URL);
 
-  const accessHeader = ["Bearer", sessionState.tokenSet.accessToken].join(" ");
-  const hmacHeaderName = "X-" + "HMAC";
   const response = await fetch(`${sessionState.config.userBaseUrl.replace(/\/+$/g, "")}/lobby/access`, {
     headers: {
       Accept: "application/json",
-      Authorization: accessHeader,
-      [hmacHeaderName]: sessionState.tokenSet.hmac,
+      Authorization: `Bearer ${sessionState.tokenSet.accessToken}`,
+      ["X-" + "HMAC"]: sessionState.tokenSet.hmac,
       "User-Agent": USER_AGENT
     }
   });
@@ -214,8 +206,8 @@ async function fetchLobbyAccess(sessionState) {
 
   const accessUrl = getAccessUrl(payload);
   if (accessUrl) return accessUrl;
-
   if (process.env.FAF_ALLOW_LOBBY_URL_FALLBACK === "1") return normalizeLobbyUrl(FALLBACK_LOBBY_URL);
+
   throw makeError("FAF lobby access response did not contain a usable websocket URL.", {
     statusCode: 502,
     phase: "lobby-access-parse",
@@ -293,13 +285,14 @@ function connectLobby(rawUrl) {
       resolve({
         sendJson(payload) {
           if (socket.readyState !== WebSocket.OPEN) throw closeError("send");
-          socket.send(Buffer.from(`${JSON.stringify(payload)}\n`, "utf8"), { binary: true });
+          socket.send(`${JSON.stringify(payload)}\n`);
         },
         readText(timeoutMs = LOBBY_TIMEOUT_MS, phase = "read") {
           if (messages.length) return Promise.resolve(messages.shift());
           if (closed) return Promise.reject(closeError(phase));
           return new Promise((resolveRead, rejectRead) => {
             const waiter = {
+              phase,
               resolve(message) { clearTimeout(timer); resolveRead(message); },
               reject(error) { clearTimeout(timer); rejectRead(error); }
             };
@@ -322,7 +315,10 @@ function connectLobby(rawUrl) {
       clearTimeout(openTimer);
       closeInfo = { code, reason: Buffer.isBuffer(reason) ? reason.toString("utf8") : String(reason || "") };
       if (!opened) return reject(closeError("websocket-open"));
-      while (waiters.length) waiters.shift().reject(closeError("read"));
+      while (waiters.length) {
+        const waiter = waiters.shift();
+        waiter.reject(closeError(waiter.phase || "read"));
+      }
     });
     socket.on("error", (error) => {
       clearTimeout(openTimer);

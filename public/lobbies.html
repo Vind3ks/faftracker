@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FAF Tracker · Live Lobbies</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/lobbies.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero compact-hero">
+      <div>
+        <p class="eyebrow">FAF Tracker</p>
+        <h1>Live Open Lobbies</h1>
+        <p class="subtitle">Snapshot open custom rooms with clickable player tracker links.</p>
+      </div>
+      <nav class="top-nav">
+        <a href="/">Tracker</a>
+        <a href="/queues.html">Queues</a>
+        <a href="/lobbies.html" aria-current="page">Lobbies</a>
+      </nav>
+    </header>
+
+    <section class="panel controls-panel">
+      <div>
+        <p class="panel-label">Status</p>
+        <div id="authSummary" class="status-pill">Checking...</div>
+      </div>
+      <div class="control-actions">
+        <a id="loginButton" class="button ghost" href="/api/auth/login">Log in</a>
+        <button id="refreshButton" class="button primary" type="button">Refresh lobbies</button>
+      </div>
+    </section>
+
+    <section id="lobbyMessage" class="panel muted">Press Refresh lobbies to load a current snapshot.</section>
+
+    <section class="summary-row">
+      <div class="panel stat-card">
+        <span>Open lobbies</span>
+        <strong id="lobbyCount">—</strong>
+      </div>
+      <div class="panel stat-card">
+        <span>Total listed players</span>
+        <strong id="playerCount">—</strong>
+      </div>
+      <div class="panel stat-card">
+        <span>Last updated</span>
+        <strong id="lastUpdated">Never</strong>
+      </div>
+    </section>
+
+    <section id="lobbiesGrid" class="lobbies-grid"></section>
+  </main>
+  <script src="/lobbies.js?v=20260507-live-lobbies"></script>
+</body>
+</html>

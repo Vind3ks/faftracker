@@ -1,8 +1,8 @@
 {
-  "name": "faf-tracker",
+  "name": "faftracker",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first FAF analytics dashboard with a pluggable data provider layer.",
+  "description": "FAF analytics dashboard",
   "engines": {
     "node": ">=20"
   },

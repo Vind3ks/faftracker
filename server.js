@@ -35,10 +35,15 @@ const FORCE_HTTPS = process.env.FORCE_HTTPS === "1" || process.env.NODE_ENV === 
 const PLAYER_RATE_LIMIT_MAX = Number(process.env.PLAYER_RATE_LIMIT_MAX || 60);
 const PLAYER_RATE_LIMIT_WINDOW_MS = Number(process.env.PLAYER_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
 const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 5 * 60 * 1000);
+const BOT_API_SECRET = process.env.BOT_API_SECRET || process.env.FAFTRACKER_BOT_SECRET || "";
+const FAF_SERVER_REFRESH_TOKEN = process.env.FAF_SERVER_REFRESH_TOKEN || "";
+const FAF_SERVER_TOKEN_STORE_PATH = process.env.FAF_SERVER_TOKEN_STORE_PATH || path.join(__dirname, "data", "faf-server-session.json");
 
 const SESSION_COOKIE = "faf_tracker_session";
 const sessions = new Map();
 const rateLimits = new Map();
+let serverBotSessionState = null;
+let serverBotSessionInit = null;
 
 function createLoadState() {
   return {
@@ -274,7 +279,111 @@ function readBody(req) {
   });
 }
 
+function getBearerToken(req) {
+  const header = String(req.headers.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function timingSafeEquals(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  if (!leftBuffer.length || leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function isAuthorizedBotRequest(req) {
+  if (!BOT_API_SECRET) {
+    return false;
+  }
+  const token = getBearerToken(req) || String(req.headers["x-bot-secret"] || "").trim();
+  return timingSafeEquals(token, BOT_API_SECRET);
+}
+
+function getServerBotSessionState() {
+  if (!serverBotSessionState) {
+    serverBotSessionState = createEmptySessionState({
+      id: "server-bot",
+      persistTokens: true,
+      tokenStorePath: FAF_SERVER_TOKEN_STORE_PATH
+    });
+  }
+  return serverBotSessionState;
+}
+
+async function ensureServerBotSessionState() {
+  const sessionState = getServerBotSessionState();
+  if (sessionState.tokenSet?.accessToken) {
+    return sessionState;
+  }
+
+  if (!FAF_SERVER_REFRESH_TOKEN) {
+    const error = new Error("FAF_SERVER_REFRESH_TOKEN is not configured on this server.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  if (!serverBotSessionInit) {
+    serverBotSessionInit = importRefreshToken(sessionState, FAF_SERVER_REFRESH_TOKEN)
+      .then(() => sessionState)
+      .catch((error) => {
+        serverBotSessionInit = null;
+        throw error;
+      });
+  }
+
+  return serverBotSessionInit;
+}
+
+async function handleBotPlayerReport(req, res, url) {
+  if (!isAuthorizedBotRequest(req)) {
+    return sendJson(res, 401, { error: "Unauthorized bot request." });
+  }
+
+  const playerRef = decodeURIComponent(url.pathname.replace("/api/bot/player/", "")).trim();
+  if (!playerRef) {
+    return sendJson(res, 400, { error: "Player reference is required." });
+  }
+
+  try {
+    const sessionState = await ensureServerBotSessionState();
+    const payload = await providers.official.getPlayerReport(playerRef, {
+      sessionState,
+      forceRefresh: true
+    });
+    const queueFilter = url.searchParams.get("queue") || "all";
+    const gameLimit = url.searchParams.get("gameLimit") || "all";
+    const report = buildPlayerReport(payload.player, payload.games, {
+      queueFilter,
+      gameLimit,
+      ratings: payload.meta?.ratings
+    });
+
+    return sendJson(res, 200, {
+      provider: "official",
+      providerMeta: payload.meta,
+      player: payload.player,
+      queueFilter,
+      gameLimit: report.gameLimit,
+      report
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      provider: "official",
+      error: error.message,
+      detail: error.detail || error.payload?.error_description || error.payload?.detail || null,
+      hint: error.hint || null
+    });
+  }
+}
+
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname.startsWith("/api/bot/player/")) {
+    return handleBotPlayerReport(req, res, url);
+  }
+
   const browserSession = getBrowserSession(req, res);
   const sessionState = browserSession.auth;
   const loadState = browserSession.load;
@@ -323,6 +432,11 @@ async function handleApi(req, res, url) {
       nodeEnv: process.env.NODE_ENV || "development",
       forceHttps: FORCE_HTTPS,
       authConfigEnabled: ALLOW_AUTH_CONFIG,
+      botApi: {
+        configured: Boolean(BOT_API_SECRET),
+        serverRefreshTokenConfigured: Boolean(FAF_SERVER_REFRESH_TOKEN),
+        tokenStorePathConfigured: Boolean(FAF_SERVER_TOKEN_STORE_PATH)
+      },
       rateLimit: {
         max: PLAYER_RATE_LIMIT_MAX,
         windowMs: PLAYER_RATE_LIMIT_WINDOW_MS

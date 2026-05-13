@@ -138,6 +138,22 @@ function setLoadingState(isLoading, text = "Fetching FAF history...", percent = 
 }
 
 function setMessage(text, tone = "muted") {
+  const value = String(text || "").trim();
+
+  if (!value) {
+    const target = elements.message || elements.statusMessage || elements.authMessage;
+    if (target) {
+      target.textContent = "";
+      target.classList.add("is-hidden");
+    }
+    return;
+  }
+
+  const target = elements.message || elements.statusMessage || elements.authMessage;
+  if (target) {
+    target.classList.remove("is-hidden");
+  }
+
   elements.message.className = `panel ${tone}`;
   elements.message.textContent = text;
 }
@@ -1457,8 +1473,8 @@ async function importToken(kind) {
     return;
   }
   const body = kind === "refresh"
-    ? { refreshToken: elements.refreshTokenInput.value.trim() }
-    : { accessToken: elements.accessTokenInput.value.trim() };
+    ? { refreshToken: (elements.refreshTokenInput ? elements.refreshTokenInput.value : "").trim() }
+    : { accessToken: (elements.accessTokenInput ? elements.accessTokenInput.value : "").trim() };
   const response = await fetch("/api/auth/import-token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1470,7 +1486,7 @@ async function importToken(kind) {
     return;
   }
   if (kind === "access") {
-    elements.accessTokenInput.value = "";
+    if (elements.accessTokenInput) elements.accessTokenInput.value = "";
   }
   await refreshStatus();
   setMessage(kind === "refresh" ? "Imported FAF refresh token." : "Temporary FAF access token active. You can load reports from the official API until it expires.", "good");
@@ -1608,7 +1624,7 @@ elements.customGameLimitInput.addEventListener("change", () => {
 });
 elements.saveAuthConfigButton?.addEventListener("click", saveAuthConfig);
 elements.importRefreshTokenButton?.addEventListener("click", () => importToken("refresh"));
-elements.importAccessTokenButton.addEventListener("click", () => importToken("access"));
+elements.importAccessTokenButton?.addEventListener("click", () => importToken("access"));
 elements.logoutButton.addEventListener("click", logout);
 elements.collapseFiltersButton.addEventListener("click", () => {
   if (!filtersStuck) {
@@ -1846,4 +1862,30 @@ refreshStatus().catch(() => {
 });
 
 setLoadingState(false);
+
+
+
+function hideEmptyMessageBars() {
+  const selectors = [
+    "#message",
+    "#statusMessage",
+    "#authMessage",
+    ".message",
+    ".status-message",
+    ".auth-message",
+    "[aria-live]"
+  ];
+
+  for (const selector of selectors) {
+    for (const el of document.querySelectorAll(selector)) {
+      if (!el.textContent || !el.textContent.trim()) {
+        el.classList.add("is-hidden");
+      }
+    }
+  }
+}
+
+document.addEventListener("DOMContentLoaded", hideEmptyMessageBars);
+setTimeout(hideEmptyMessageBars, 100);
+setTimeout(hideEmptyMessageBars, 500);
 

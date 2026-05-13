@@ -498,6 +498,42 @@ async function fetchAllGames(sessionState, playerId, onProgress) {
   return games;
 }
 
+
+async function fetchCurrentPlayerRatings(playerRef, sessionState) {
+  const playerFilter = encodeURIComponent(`login=="${playerRef}"`);
+  const playerDoc = await fafRequest(sessionState, `/data/player?filter=${playerFilter}&page%5Bsize%5D=1`);
+  const playerResource = playerDoc.data?.[0];
+
+  if (!playerResource) {
+    throw providerError(`No FAF player found for "${playerRef}".`, {
+      statusCode: 404
+    });
+  }
+
+  const playerId = Number(playerResource.id);
+
+  const ratingsDoc = await fafRequest(
+    sessionState,
+    `/data/leaderboardRating?filter=${encodeURIComponent(`player.id==${playerId}`)}&include=leaderboard&page%5Bsize%5D=50`
+  );
+
+  const ratings = parseRatings(ratingsDoc);
+
+  return {
+    player: {
+      id: playerId,
+      login: playerResource.attributes?.login || playerRef,
+      ratings: Object.fromEntries(
+        ratings.map((entry) => [
+          entry.technicalName,
+          Math.round(entry.rating ?? ((entry.mean || 0) - 3 * (entry.deviation || 0)))
+        ])
+      )
+    },
+    ratings
+  };
+}
+
 async function fetchLivePlayerReport(playerRef, sessionState, onProgress) {
   onProgress?.({
     stage: "player",
@@ -617,6 +653,16 @@ function createOfficialProvider() {
           detail: error.payload?.error_description || error.payload?.detail || error.message
         };
       }
+    },
+
+    async getPlayerCurrentRatings(playerRef, { sessionState }) {
+      if (!sessionState?.tokenSet) {
+        throw providerError("FAF login is required to fetch current player ratings.", {
+          statusCode: 401
+        });
+      }
+
+      return fetchCurrentPlayerRatings(playerRef, sessionState);
     },
 
     async getPlayerReport(playerRef, { sessionState, onProgress, forceRefresh }) {

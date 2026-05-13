@@ -5,6 +5,8 @@ const crypto = require("crypto");
 const { URL } = require("url");
 
 const { buildPlayerReport } = require("./src/analytics");
+const { buildPlayerGraphPayload } = require("./src/rating-graph");
+const { fetchReplaySummary } = require("./src/replay-summary");
 const { deleteCache } = require("./src/player-cache");
 const {
   beginAuth,
@@ -307,34 +309,57 @@ function getServerBotSessionState() {
     serverBotSessionState = createEmptySessionState({
       id: "server-bot",
       persistTokens: true,
-      tokenStorePath: FAF_SERVER_TOKEN_STORE_PATH
+      tokenStorePath: FAF_SERVER_TOKEN_STORE_PATH,
+
+      // Server bot token may be issued to a different OAuth client than website login.
+      // Do not use the website client secret for the server-bot refresh token.
+      clientId: process.env.FAF_SERVER_OAUTH_CLIENT_ID || process.env.FAF_OAUTH_CLIENT_ID,
+      clientSecret: process.env.FAF_SERVER_CLIENT_SECRET || ""
     });
   }
   return serverBotSessionState;
 }
 
+
+async function promoteSessionTokenToServerBot(sessionState) {
+  const refreshToken = sessionState?.tokenSet?.refreshToken;
+  if (!refreshToken) {
+    return false;
+  }
+
+  const botSessionState = getServerBotSessionState();
+  await importRefreshToken(botSessionState, refreshToken);
+  serverBotSessionInit = Promise.resolve(botSessionState);
+  return true;
+}
+
 async function ensureServerBotSessionState() {
   const sessionState = getServerBotSessionState();
-  if (sessionState.tokenSet?.accessToken) {
+
+  // If the persisted OAuth token store already has a token, use it.
+  // fafRequest() will refresh it automatically when needed.
+  if (sessionState.tokenSet?.accessToken || sessionState.tokenSet?.refreshToken) {
     return sessionState;
   }
 
-  if (!FAF_SERVER_REFRESH_TOKEN) {
-    const error = new Error("FAF_SERVER_REFRESH_TOKEN is not configured on this server.");
-    error.statusCode = 500;
-    throw error;
+  // Optional legacy/manual env token support.
+  // If FAF_SERVER_REFRESH_TOKEN exists, import it once.
+  if (FAF_SERVER_REFRESH_TOKEN) {
+    if (!serverBotSessionInit) {
+      serverBotSessionInit = importRefreshToken(sessionState, FAF_SERVER_REFRESH_TOKEN)
+        .then(() => sessionState)
+        .catch((error) => {
+          serverBotSessionInit = null;
+          throw error;
+        });
+    }
+
+    return serverBotSessionInit;
   }
 
-  if (!serverBotSessionInit) {
-    serverBotSessionInit = importRefreshToken(sessionState, FAF_SERVER_REFRESH_TOKEN)
-      .then(() => sessionState)
-      .catch((error) => {
-        serverBotSessionInit = null;
-        throw error;
-      });
-  }
-
-  return serverBotSessionInit;
+  const error = new Error("Server FAF OAuth token is not configured. Log in with FAF once using the server/bot account.");
+  error.statusCode = 500;
+  throw error;
 }
 
 async function handleBotPlayerReport(req, res, url) {
@@ -379,7 +404,76 @@ async function handleBotPlayerReport(req, res, url) {
   }
 }
 
+async function handleBotReplaySummary(req, res, url) {
+  if (!isAuthorizedBotRequest(req)) {
+    return sendJson(res, 401, { error: "Unauthorized bot request." });
+  }
+
+  const replayId = decodeURIComponent(url.pathname.replace("/api/bot/replay/", "")).trim();
+  if (!replayId) {
+    return sendJson(res, 400, { error: "Replay id is required." });
+  }
+
+  try {
+    const sessionState = await ensureServerBotSessionState();
+    const payload = await fetchReplaySummary(sessionState, replayId);
+    return sendJson(res, 200, {
+      provider: "official",
+      ...payload
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      provider: "official",
+      error: error.message,
+      detail: error.detail || error.payload?.error_description || error.payload?.detail || null,
+      hint: error.hint || null
+    });
+  }
+}
+
+
+async function handleBotPlayerGraph(req, res, url) {
+  if (!isAuthorizedBotRequest(req)) {
+    return sendJson(res, 401, { error: "Unauthorized bot request." });
+  }
+
+  const players = url.searchParams.get("players") || "";
+  const queue = url.searchParams.get("queue") || "ladder_1v1";
+  const days = url.searchParams.get("days") || "365";
+  const forceRefresh = url.searchParams.get("refresh") === "1";
+
+  try {
+    const sessionState = await ensureServerBotSessionState();
+    const payload = await buildPlayerGraphPayload(providers.official, sessionState, {
+      players,
+      queue,
+      days,
+      forceRefresh
+    });
+
+    return sendJson(res, 200, {
+      provider: "official",
+      ...payload
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      provider: "official",
+      error: error.message,
+      detail: error.detail || error.payload?.error_description || error.payload?.detail || null,
+      hint: error.hint || null
+    });
+  }
+}
+
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/bot/graph") {
+    return handleBotPlayerGraph(req, res, url);
+  }
+
+  if (req.method === "GET" && url.pathname.startsWith("/api/bot/replay/")) {
+    return handleBotReplaySummary(req, res, url);
+  }
+
   if (req.method === "GET" && url.pathname.startsWith("/api/bot/player/")) {
     return handleBotPlayerReport(req, res, url);
   }
@@ -523,6 +617,38 @@ async function handleApi(req, res, url) {
     });
   }
 
+
+  if (req.method === "POST" && url.pathname === "/api/admin/server-bot/use-current-session") {
+    if (!isAuthorizedBotRequest(req)) {
+      return sendJson(res, 401, { error: "Unauthorized admin request." });
+    }
+
+    try {
+      if (!sessionState.tokenSet?.refreshToken) {
+        return sendJson(res, 400, {
+          error: "Current browser session has no FAF refresh token. Log in with FAF using the server/bot account first."
+        });
+      }
+
+      const botSessionState = getServerBotSessionState();
+      await importRefreshToken(botSessionState, sessionState.tokenSet.refreshToken);
+      serverBotSessionInit = Promise.resolve(botSessionState);
+
+      return sendJson(res, 200, {
+        ok: true,
+        message: "Current FAF login was promoted to server bot session.",
+        userProfile: sessionState.userProfile || null,
+        serverBotTokenReady: Boolean(botSessionState.tokenSet?.refreshToken)
+      });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 500, {
+        error: error.message,
+        detail: error.detail || null,
+        hint: error.hint || null
+      });
+    }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/auth/logout") {
     clearSession(sessionState);
     return sendJson(res, 200, { ok: true });
@@ -561,7 +687,7 @@ async function handleApi(req, res, url) {
           return sendJson(res, 403, { error: "Refresh token import is disabled on the public server." });
         }
         await importRefreshToken(sessionState, body.refreshToken);
-      } else if (body.accessToken) {
+        } else if (body.accessToken) {
         await importAccessToken(sessionState, body.accessToken);
       } else {
         return sendJson(res, 400, { error: "Provide either refreshToken or accessToken." });

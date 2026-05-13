@@ -1160,3 +1160,33 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.8;
   cursor: pointer;
 }
+/* Hide empty status/message bars after manual token UI was removed. */
+.message:empty,
+.status-message:empty,
+.auth-message:empty,
+#message:empty,
+#statusMessage:empty,
+#authMessage:empty {
+  display: none !important;
+}
+
+/* If JS leaves an empty message element visible, this class will hide it. */
+.is-hidden {
+  display: none !important;
+}
+
+
+/* Hide empty leftover message bars. */
+.is-hidden {
+  display: none !important;
+}
+
+#message.is-hidden,
+#statusMessage.is-hidden,
+#authMessage.is-hidden,
+.message.is-hidden,
+.status-message.is-hidden,
+.auth-message.is-hidden,
+[aria-live].is-hidden {
+  display: none !important;
+}

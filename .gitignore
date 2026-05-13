@@ -1,0 +1,33 @@
+
+!.env.example
+# backups
+# deps / build
+# local secrets
+# logs / dumps / temp
+# tokens / sessions / runtime data
+*.backup*
+*.bak
+*.bak.*
+*.csv
+*.db
+*.jsonl
+*.log
+*.sqlite
+*.token
+*session*.json
+*token*
+.cache/
+.env
+.env.*
+build/
+data/
+dist/
+ecosystem.config.cjs
+ecosystem.config.js
+faf-script-session.json
+faf-server-session.json
+logs/
+node_modules/
+server.js.bak*
+src/*.bak*
+tmp/

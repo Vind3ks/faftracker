@@ -10,8 +10,9 @@ const DEFAULT_CONFIG = {
   userBaseUrl: process.env.FAF_USER_BASE || "https://user.faforever.com",
   oauthBaseUrl: process.env.FAF_OAUTH_BASE || "https://hydra.faforever.com",
   oidcDiscoveryUrl: process.env.FAF_OIDC_DISCOVERY_URL || "https://hydra.faforever.com/.well-known/openid-configuration",
-  clientId: process.env.FAF_OAUTH_CLIENT_ID || "2e8808cf-5889-469b-b2c3-01f0cc58c4af",
-  scopes: process.env.FAF_OAUTH_SCOPES || "openid offline public_profile upload_map upload_mod lobby",
+  clientId: process.env.FAF_OAUTH_CLIENT_ID || "8213f968-676b-4ef5-b9b7-571b60b6ca91",
+  clientSecret: process.env.FAF_CLIENT_SECRET || "",
+  scopes: process.env.FAF_OAUTH_SCOPES || "openid offline public_profile",
   authMode: process.env.FAF_AUTH_MODE || "loopback",
   redirectUri: process.env.FAF_OAUTH_REDIRECT_URI || "",
   loopbackHost: process.env.FAF_OAUTH_LOOPBACK_HOST || "127.0.0.1",
@@ -58,7 +59,7 @@ function createEmptySessionState(options = {}) {
   const tokenStorePath = options.tokenStorePath ?? DEFAULT_CONFIG.tokenStorePath;
   return {
     id: options.id || null,
-    config: { ...DEFAULT_CONFIG, persistTokens, tokenStorePath },
+    config: { ...DEFAULT_CONFIG, ...options, persistTokens, tokenStorePath },
     callback: {
       server: null,
       redirectUri: null,
@@ -259,6 +260,10 @@ async function ensureOidcDiscovery(sessionState) {
 async function exchangeOAuthToken(sessionState, params) {
   const discovery = await ensureOidcDiscovery(sessionState);
   const body = new URLSearchParams(params);
+
+  if (sessionState.config.clientSecret) {
+    body.set("client_secret", sessionState.config.clientSecret);
+  }
   const tokenPayload = await fetchJson(discovery.token_endpoint, {
     method: "POST",
     headers: {
@@ -307,12 +312,25 @@ async function ensureFreshToken(sessionState) {
     throw error;
   }
 
-  return exchangeOAuthToken(sessionState, {
+  // IMPORTANT:
+  // FAF refresh tokens may be one-time-use / rotated.
+  // If multiple requests refresh at the same time, the second one can invalidate/fail.
+  // Keep one in-flight refresh promise per session so all callers share the same refresh.
+  if (sessionState.refreshTokenPromise) {
+    return sessionState.refreshTokenPromise;
+  }
+
+  sessionState.refreshTokenPromise = exchangeOAuthToken(sessionState, {
     grant_type: "refresh_token",
     client_id: sessionState.config.clientId,
     refresh_token: tokenSet.refreshToken
+  }).finally(() => {
+    sessionState.refreshTokenPromise = null;
   });
+
+  return sessionState.refreshTokenPromise;
 }
+
 
 function isAuthFailure(error) {
   if (!error) {

@@ -5,6 +5,10 @@ const crypto = require("crypto");
 const { URL } = require("url");
 
 const { buildPlayerReport } = require("./src/analytics");
+const { fetchReplaySummary } = require("./src/replay-summary");
+const { analyzeReplayById } = require("./src/replay/replay-service");
+const { getUnitIconPng } = require("./src/replay/icon");
+const { recordReplay, queryLeaderboard, listIndexedMaps } = require("./src/replay/leaderboard");
 const { deleteCache } = require("./src/player-cache");
 const {
   beginAuth,
@@ -337,6 +341,109 @@ async function ensureServerBotSessionState() {
   return serverBotSessionInit;
 }
 
+function parseReplayId(raw) {
+  const value = String(raw || "").trim();
+  if (!value) {
+    return null;
+  }
+
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  // Replay links look like https://replay.faforever.com/22517732 or
+  // https://api.faforever.com/data/game/22517732 - use the last path segment.
+  let candidate = value;
+  try {
+    const parsed = new URL(value);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    candidate = segments.length ? segments[segments.length - 1] : "";
+  } catch (error) {
+    const matches = value.match(/\d+/g);
+    candidate = matches ? matches[matches.length - 1] : "";
+  }
+
+  const id = Number(candidate);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+// Build a summary-like object for leaderboard indexing. Prefers the FAF API
+// summary; falls back to the map path embedded in the replay file.
+function summaryFor(summaryPayload, analysis, replayId) {
+  if (summaryPayload && summaryPayload.summary) return summaryPayload.summary;
+  const segments = String(analysis.map || "").split("/").filter(Boolean);
+  const folder = segments.length >= 2 ? segments[segments.length - 2] : segments[0] || `replay-${replayId}`;
+  return { map: folder, mapFolderName: folder, queueCategory: null };
+}
+
+const MAP_PREVIEW_FOLDER = /^[a-z0-9._\- ]{1,120}$/i;
+
+async function handleMapPreview(req, res, url) {
+  const folder = String(url.searchParams.get("folder") || "").trim().replace(/\.png$/i, "");
+  const size = url.searchParams.get("size") === "small" ? "small" : "large";
+
+  if (!MAP_PREVIEW_FOLDER.test(folder)) {
+    return sendText(res, 400, "Invalid map preview folder.");
+  }
+
+  const target = `https://content.faforever.com/faf/vault/map_previews/${size}/${encodeURIComponent(folder)}.png`;
+
+  try {
+    const upstream = await fetch(target, { headers: { "User-Agent": "faf-scout/0.2" } });
+    if (!upstream.ok) {
+      return sendText(res, upstream.status === 404 ? 404 : 502, "Map preview is not available.");
+    }
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.writeHead(200, {
+      "Content-Type": upstream.headers.get("content-type") || "image/png",
+      "Content-Length": buffer.length,
+      "Cache-Control": "public, max-age=86400"
+    });
+    res.end(buffer);
+  } catch (error) {
+    return sendText(res, 502, "Unable to load map preview.");
+  }
+}
+
+const UNIT_ICON_ID = /^[a-z0-9_]{2,40}$/i;
+
+async function handleUnitIcon(req, res, url) {
+  const blueprintId = decodeURIComponent(url.pathname.replace("/api/unit-icon/", "")).trim();
+  if (!UNIT_ICON_ID.test(blueprintId)) {
+    return sendText(res, 400, "Invalid blueprint id.");
+  }
+  try {
+    const png = await getUnitIconPng(blueprintId);
+    if (!png) {
+      return sendText(res, 404, "Icon not available.");
+    }
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": png.length,
+      "Cache-Control": "public, max-age=604800"
+    });
+    res.end(png);
+  } catch (error) {
+    return sendText(res, 502, "Unable to render unit icon.");
+  }
+}
+
+async function handleReplayLeaderboard(req, res, url) {
+  const map = String(url.searchParams.get("map") || "").trim();
+  const event = String(url.searchParams.get("event") || "").trim();
+  const tier = url.searchParams.get("tier");
+  if (!map && !event) {
+    return sendJson(res, 200, { maps: listIndexedMaps() });
+  }
+  try {
+    const results = queryLeaderboard({ map, event, tier });
+    return sendJson(res, 200, { map, event, tier: tier || null, results });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleBotPlayerReport(req, res, url) {
   if (!isAuthorizedBotRequest(req)) {
     return sendJson(res, 401, { error: "Unauthorized bot request." });
@@ -382,6 +489,18 @@ async function handleBotPlayerReport(req, res, url) {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname.startsWith("/api/bot/player/")) {
     return handleBotPlayerReport(req, res, url);
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/map-preview") {
+    return handleMapPreview(req, res, url);
+  }
+
+  if (req.method === "GET" && url.pathname.startsWith("/api/unit-icon/")) {
+    return handleUnitIcon(req, res, url);
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/replay-leaderboard") {
+    return handleReplayLeaderboard(req, res, url);
   }
 
   const browserSession = getBrowserSession(req, res);
@@ -704,6 +823,74 @@ async function handleApi(req, res, url) {
         hint: error.hint || null
       });
     }
+  }
+
+  if (req.method === "GET" && url.pathname.startsWith("/api/replay/")) {
+    const limit = checkRateLimit(`replay:${getClientIp(req)}`, PLAYER_RATE_LIMIT_MAX, PLAYER_RATE_LIMIT_WINDOW_MS);
+    if (limit.limited) {
+      res.setHeader("Retry-After", String(limit.retryAfterSeconds));
+      return sendJson(res, 429, {
+        error: "Too many replay lookups. Please wait a bit before trying again.",
+        retryAfterSeconds: limit.retryAfterSeconds
+      });
+    }
+
+    const raw = decodeURIComponent(url.pathname.replace("/api/replay/", "")).trim();
+    const replayId = parseReplayId(raw);
+    if (!replayId) {
+      return sendJson(res, 400, { error: "Provide a numeric replay id or a FAF replay link." });
+    }
+
+    // The API summary (ratings, map, outcomes) and the replay-file analysis
+    // (APM, timeline) are fetched independently: the summary needs FAF API auth,
+    // the analysis only needs the public replay file. Either can fail on its own.
+    let summaryPayload = null;
+    let summaryError = null;
+    let analysis = null;
+    let analysisError = null;
+
+    await Promise.all([
+      (async () => {
+        try {
+          summaryPayload = await fetchReplaySummary(sessionState, replayId);
+        } catch (error) {
+          summaryError = error.message;
+        }
+      })(),
+      (async () => {
+        try {
+          analysis = await analyzeReplayById(replayId);
+        } catch (error) {
+          analysisError = error.message;
+        }
+      })()
+    ]);
+
+    if (!summaryPayload && !analysis) {
+      return sendJson(res, 502, {
+        provider: "official",
+        error: summaryError || "Unable to load this replay.",
+        detail: analysisError || null
+      });
+    }
+
+    if (analysis) {
+      try {
+        recordReplay(replayId, summaryFor(summaryPayload, analysis, replayId), analysis);
+      } catch (error) {
+        /* leaderboard indexing is best-effort */
+      }
+    }
+
+    return sendJson(res, 200, {
+      provider: "official",
+      replay: summaryPayload?.replay || { id: replayId, replayUrl: `https://replay.faforever.com/${replayId}` },
+      summary: summaryPayload?.summary || null,
+      raw: summaryPayload?.raw || null,
+      analysis,
+      summaryError,
+      analysisError
+    });
   }
 
   if (req.method === "DELETE" && url.pathname.startsWith("/api/cache/player/")) {

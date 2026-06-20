@@ -9,5 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
+  },
+  "dependencies": {
+    "fzstd": "^0.1.1"
   }
 }

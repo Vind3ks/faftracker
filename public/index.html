@@ -79,6 +79,47 @@
 
       </section>
 
+      <section class="panel replay-viewer">
+        <div class="history-header">
+          <h2>Replay viewer</h2>
+        </div>
+        <p class="panel-label">Look up a finished replay by its id or link &mdash; full summary, no live telemetry.</p>
+        <div class="control-row replay-control-row">
+          <label class="field">
+            <span>Replay id or link</span>
+            <input id="replayInput" type="text" placeholder="e.g. 22517732 or https://replay.faforever.com/22517732" autocomplete="off" />
+          </label>
+          <button id="replayLoadButton" class="primary">Load replay</button>
+        </div>
+        <p id="replayMessage" class="replay-message" hidden></p>
+        <div id="replayResult" class="replay-result" hidden></div>
+      </section>
+
+      <section class="panel replay-leaderboard">
+        <div class="history-header">
+          <h2>Best-timing leaderboard</h2>
+        </div>
+        <p class="panel-label">Fastest recorded unit &amp; tech timings per map &mdash; Kazbek-style, indexed from replays viewed here.</p>
+        <div class="control-row leaderboard-controls">
+          <label class="field">
+            <span>Map</span>
+            <input id="lbMap" list="lbMapList" type="text" placeholder="e.g. Seton's Clutch" autocomplete="off" />
+            <datalist id="lbMapList"></datalist>
+          </label>
+          <label class="field">
+            <span>Unit / event</span>
+            <input id="lbEvent" type="text" placeholder="e.g. Paragon, T3 air, Destroyer" autocomplete="off" />
+          </label>
+          <label class="field compact">
+            <span>Tier</span>
+            <select id="lbTier"><option value="">All</option><option value="2">T2</option><option value="3">T3</option><option value="4">T4</option></select>
+          </label>
+          <button id="lbSearchButton" class="primary">Search</button>
+        </div>
+        <p id="lbMessage" class="replay-message" hidden></p>
+        <div id="lbResults" class="leaderboard-results"></div>
+      </section>
+
       <section class="panel" hidden>
         <div class="status-grid">
           <div>
@@ -247,5 +288,7 @@
 
     <script src="/player-url-support.js?v=20260508-url-load"></script>
     <script src="/app.js?v=20260505-restored"></script>
+    <script src="/replay-viewer.js?v=20260612-replay"></script>
+    <script src="/replay-leaderboard.js?v=20260612-lb"></script>
   </body>
   </html>

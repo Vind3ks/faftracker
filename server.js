@@ -967,6 +967,10 @@ async function handleApi(req, res, url) {
 
 function serveStatic(req, res, url) {
   let targetPath = url.pathname === "/" ? "/index.html" : url.pathname;
+  // Pretty URL for the Old Replays page.
+  if (targetPath === "/old-replays" || targetPath === "/old-replays/") {
+    targetPath = "/replays.html";
+  }
   const resolvedPath = path.normalize(path.join(PUBLIC_DIR, targetPath));
 
   if (!resolvedPath.startsWith(PUBLIC_DIR)) {

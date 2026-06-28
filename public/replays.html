@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Old Replays &middot; FAF Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=20260628-restored" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <p class="eyebrow"><a class="back-link" href="/">&#8592; FAF Tracker</a></p>
+        <h1>Old Replays</h1>
+        <p class="hero-copy">
+          Browse the archived replay collection. Download a file, or analyze any replay right here &mdash;
+          it loads into the viewer below with full APM and tech timeline.
+        </p>
+      </header>
+
+      <section class="panel old-replays">
+        <div class="history-header">
+          <h2>Archive</h2>
+          <div class="history-actions">
+            <input id="oldReplaySearch" class="section-search" type="search" placeholder="Search archived replays" autocomplete="off" />
+          </div>
+        </div>
+        <p id="oldReplayMessage" class="replay-message" hidden></p>
+        <div id="oldReplayTable" class="table-wrap"></div>
+        <div class="old-replays-foot">
+          <span id="oldReplayCount" class="panel-label"></span>
+          <button id="oldReplayMore" class="secondary" type="button" hidden>Show more</button>
+        </div>
+      </section>
+
+      <section class="panel replay-viewer">
+        <div class="history-header">
+          <h2>Replay viewer</h2>
+        </div>
+        <p class="panel-label">Analysis of the selected archived replay &mdash; or paste any FAF replay id / link.</p>
+        <div class="control-row replay-control-row">
+          <label class="field">
+            <span>Replay id or link</span>
+            <input id="replayInput" type="text" placeholder="e.g. 22517732 or https://replay.faforever.com/22517732" autocomplete="off" />
+          </label>
+          <button id="replayLoadButton" class="primary">Load replay</button>
+        </div>
+        <p id="replayMessage" class="replay-message" hidden></p>
+        <div id="replayResult" class="replay-result" hidden></div>
+      </section>
+    </div>
+
+    <button id="scrollTopButton" class="scroll-top-button" type="button" aria-label="Scroll to top" hidden><span class="chevron chevron-up" aria-hidden="true"></span></button>
+
+    <script src="/replay-viewer.js?v=20260628-replay"></script>
+    <script src="/old-replays.js?v=20260628-archive"></script>
+  </body>
+</html>

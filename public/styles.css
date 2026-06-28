@@ -988,6 +988,19 @@ th.sortable {
 .old-replays-foot .panel-label {
   margin: 0;
 }
+.old-replays-link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.back-link {
+  color: inherit;
+  text-decoration: none;
+}
+.back-link:hover {
+  color: var(--text);
+}
 
 .meta-note strong {
   color: var(--text);

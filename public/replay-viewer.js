@@ -506,4 +506,16 @@
   } else {
     bootFromUrl();
   }
+
+  // Let other panels (e.g. Old Replays) render an already-fetched payload into
+  // the shared replay-result area instead of duplicating the renderer.
+  window.fafReplayViewer = {
+    render(payload) {
+      renderReplay(payload);
+      setMessage(`Loaded ${payload.replay?.title || "replay"} from the archive.`, "good");
+      resultEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    setMessage,
+    setLoading
+  };
 })();

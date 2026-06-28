@@ -959,6 +959,36 @@ th.sortable {
   line-height: 1.6;
 }
 
+/* Old Replays panel */
+.old-replays .old-replay-name {
+  word-break: break-all;
+}
+.old-replays td.num {
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.old-replays .old-replay-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.old-replays .old-replay-actions .button-link {
+  padding: 7px 12px;
+}
+.old-replays-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.old-replays-foot .panel-label {
+  margin: 0;
+}
+
 .meta-note strong {
   color: var(--text);
 }

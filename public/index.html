@@ -95,6 +95,22 @@
         <div id="replayResult" class="replay-result" hidden></div>
       </section>
 
+      <section class="panel old-replays">
+        <div class="history-header">
+          <h2>Old Replays</h2>
+          <div class="history-actions">
+            <input id="oldReplaySearch" class="section-search" type="search" placeholder="Search archived replays" autocomplete="off" />
+          </div>
+        </div>
+        <p class="panel-label">Browse the archived replay collection. Download a file, or analyze it right here &mdash; it loads into the replay viewer above.</p>
+        <p id="oldReplayMessage" class="replay-message" hidden></p>
+        <div id="oldReplayTable" class="table-wrap"></div>
+        <div class="old-replays-foot">
+          <span id="oldReplayCount" class="panel-label"></span>
+          <button id="oldReplayMore" class="secondary" type="button" hidden>Show more</button>
+        </div>
+      </section>
+
       <section class="panel replay-leaderboard">
         <div class="history-header">
           <h2>Best-timing leaderboard</h2>
@@ -288,7 +304,8 @@
 
     <script src="/player-url-support.js?v=20260508-url-load"></script>
     <script src="/app.js?v=20260505-restored"></script>
-    <script src="/replay-viewer.js?v=20260612-replay"></script>
+    <script src="/replay-viewer.js?v=20260628-replay"></script>
     <script src="/replay-leaderboard.js?v=20260612-lb"></script>
+    <script src="/old-replays.js?v=20260628-archive"></script>
   </body>
   </html>

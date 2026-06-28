@@ -7,6 +7,7 @@ const { URL } = require("url");
 const { buildPlayerReport } = require("./src/analytics");
 const { fetchReplaySummary } = require("./src/replay-summary");
 const { analyzeReplayById } = require("./src/replay/replay-service");
+const { listOldReplays, analyzeOldReplay, fileUrlFor, OLD_REPLAYS_BASE } = require("./src/replay/old-replays");
 const { getUnitIconPng } = require("./src/replay/icon");
 const { recordReplay, queryLeaderboard, listIndexedMaps } = require("./src/replay/leaderboard");
 const { deleteCache } = require("./src/player-cache");
@@ -902,6 +903,63 @@ async function handleApi(req, res, url) {
       ok: true,
       deleted: deleteCache(playerRef)
     });
+  }
+
+  // ---- Old Replays (archived collection served from the FAFGuessr VM) ----
+  if (req.method === "GET" && url.pathname === "/api/old-replays") {
+    try {
+      const data = await listOldReplays({
+        search: url.searchParams.get("search") || "",
+        limit: url.searchParams.get("limit") || "50",
+        offset: url.searchParams.get("offset") || "0"
+      });
+      return sendJson(res, 200, { ...data, source: OLD_REPLAYS_BASE });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 502, { error: error.message });
+    }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/old-replays/analyze") {
+    const limit = checkRateLimit(`oldreplay:${getClientIp(req)}`, PLAYER_RATE_LIMIT_MAX, PLAYER_RATE_LIMIT_WINDOW_MS);
+    if (limit.limited) {
+      res.setHeader("Retry-After", String(limit.retryAfterSeconds));
+      return sendJson(res, 429, {
+        error: "Too many replay analyses. Please wait a bit before trying again.",
+        retryAfterSeconds: limit.retryAfterSeconds
+      });
+    }
+    const rel = (url.searchParams.get("path") || "").trim();
+    if (!rel) {
+      return sendJson(res, 400, { error: "Provide a replay path." });
+    }
+    try {
+      const analysis = await analyzeOldReplay(rel);
+      const base = rel.split("/").pop();
+      return sendJson(res, 200, {
+        provider: "archive",
+        replay: {
+          id: base,
+          title: base,
+          replayUrl: `/api/old-replays/file?path=${encodeURIComponent(rel)}`
+        },
+        summary: null,
+        raw: null,
+        analysis,
+        summaryError: null,
+        analysisError: null
+      });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 502, { error: error.message });
+    }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/old-replays/file") {
+    const rel = (url.searchParams.get("path") || "").trim();
+    if (!rel) {
+      return sendJson(res, 400, { error: "Provide a replay path." });
+    }
+    res.writeHead(302, { Location: fileUrlFor(rel) });
+    return res.end();
   }
 
   return sendJson(res, 404, { error: "Not found." });

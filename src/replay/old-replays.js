@@ -8,6 +8,19 @@ const { analyzeReplayBuffer } = require("./analyze");
 
 const OLD_REPLAYS_BASE = (process.env.REPLAYS_API || "https://replays.doodlepros.com").replace(/\/+$/, "");
 
+// If the replay archive is password-protected, set REPLAYS_PASSWORD (and
+// optionally REPLAYS_USER, default "faf") here so server-side fetches authenticate.
+const AUTH_HEADER = process.env.REPLAYS_PASSWORD
+  ? "Basic " +
+    Buffer.from(`${process.env.REPLAYS_USER || "faf"}:${process.env.REPLAYS_PASSWORD}`).toString("base64")
+  : null;
+
+function authHeaders() {
+  const h = { "User-Agent": "faftracker" };
+  if (AUTH_HEADER) h.Authorization = AUTH_HEADER;
+  return h;
+}
+
 function encodePath(rel) {
   return rel.split("/").map(encodeURIComponent).join("/");
 }
@@ -37,7 +50,7 @@ async function fetchOldReplayBuffer(relPath) {
   let response;
   try {
     response = await fetch(`${OLD_REPLAYS_BASE}/files/${encodePath(relPath)}`, {
-      headers: { "User-Agent": "faftracker" }
+      headers: authHeaders()
     });
   } catch (error) {
     const err = new Error("Could not reach the replay archive.");
